@@ -1,0 +1,630 @@
+// FleetCaring — Prisma schema
+// See ARCHITECTURE.md for the full design discussion behind these models.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis, postgis_topology, fuzzystrmatch, postgis_tiger_geocoder]
+}
+
+// ============================================================
+// Shared enums
+// ============================================================
+
+enum ActorType {
+  CUSTOMER
+  PILOT
+  ADMIN
+}
+
+// ============================================================
+// 1. Customer identity (FleetCaring consumer app)
+// ============================================================
+
+model User {
+  id            String    @id @default(uuid())
+  phoneNumber   String    @unique
+  name          String?
+  email         String?   @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  vehicles      Vehicle[]
+  addresses     Address[]
+  orders        Order[]
+  refreshTokens RefreshToken[]
+  deviceTokens  DeviceToken[]
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  ELECTRIC
+  HYBRID
+}
+
+model Vehicle {
+  id           String     @id @default(uuid())
+  ownerId      String
+  owner        User       @relation(fields: [ownerId], references: [id])
+  make         String
+  model        String
+  year         Int?
+  licensePlate String
+  color        String
+  fuelType     FuelType
+  isDefault    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  shipments    Shipment[]
+}
+
+enum AddressLabel {
+  HOME
+  WORK
+  CUSTOM
+}
+
+model Address {
+  id           String       @id @default(uuid())
+  ownerId      String
+  owner        User         @relation(fields: [ownerId], references: [id])
+  label        String       // display name, e.g. "Home", "Marina Apartment"
+  labelType    AddressLabel
+  latitude     Float
+  longitude    Float
+  addressText  String
+  notes        String?
+  zoneId       String?      // resolved via ST_Contains against Zone.boundary at save time
+  zone         Zone?        @relation(fields: [zoneId], references: [id])
+  createdAt    DateTime     @default(now())
+
+  orders       Order[]
+}
+
+// ============================================================
+// 2. Pilot identity
+// ============================================================
+
+enum PilotStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model Pilot {
+  id           String      @id @default(uuid())
+  code         String      @unique // "TXMPilot2413"
+  firstName    String
+  lastName     String
+  email        String      @unique
+  phoneNumber  String      @unique
+  passwordHash String?     // set only if the pilot uses email+password login
+  verticalId   String?
+  vertical     Vertical?   @relation(fields: [verticalId], references: [id])
+  status       PilotStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+
+  shifts        Shift[]
+  refreshTokens RefreshToken[]
+  deviceTokens  DeviceToken[]
+  liveLocation  PilotLiveLocation?
+  locationPings PilotLocationPing[]
+  issuesRaised  Issue[]
+}
+
+// ============================================================
+// 3. Admin identity + department-based RBAC
+// ============================================================
+
+model AdminRole {
+  id          String           @id @default(uuid())
+  name        String           @unique // "Operations Manager", "Finance", ...
+  users       AdminUser[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id    String           @id @default(uuid())
+  key   String           @unique // "zones:write", "orders:read", "finance:refund"
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  role         AdminRole  @relation(fields: [roleId], references: [id])
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  roleId       String
+  role         AdminRole @relation(fields: [roleId], references: [id])
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  refreshTokens RefreshToken[]
+}
+
+// ============================================================
+// 4. Shared auth infra (one polymorphic table per actor type)
+// ============================================================
+
+model RefreshToken {
+  id        String     @id @default(uuid())
+  tokenHash String     @unique // SHA-256 hash only — never store the raw token
+  actorType ActorType
+  userId    String?
+  user      User?      @relation(fields: [userId], references: [id])
+  pilotId   String?
+  pilot     Pilot?     @relation(fields: [pilotId], references: [id])
+  adminId   String?
+  admin     AdminUser? @relation(fields: [adminId], references: [id])
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([userId])
+  @@index([pilotId])
+  @@index([adminId])
+}
+
+model DeviceToken {
+  id        String    @id @default(uuid())
+  actorType ActorType
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id])
+  pilotId   String?
+  pilot     Pilot?    @relation(fields: [pilotId], references: [id])
+  token     String    @unique
+  platform  String    // "ios" | "android"
+  updatedAt DateTime  @updatedAt
+}
+
+// ============================================================
+// 5. Catalog — Vertical -> Brand -> OpItem -> ItemVariation
+// ============================================================
+
+model Vertical {
+  id     String    @id @default(uuid())
+  name   String    @unique // "Car Wash", "Vehicle Inspection", "Add-on"...
+  items  OpItem[]
+  pilots Pilot[]
+}
+
+model Brand {
+  id    String   @id @default(uuid())
+  name  String   @unique // "CAFU", "Accelera", "Oscar" — nullable brand = generic
+  items OpItem[]
+}
+
+model OpItem {
+  id         String          @id @default(uuid())
+  name       String          // "Servicing", "Undercarriage Wash"
+  verticalId String
+  vertical   Vertical        @relation(fields: [verticalId], references: [id])
+  brandId    String?
+  brand      Brand?          @relation(fields: [brandId], references: [id])
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+
+  variations ItemVariation[]
+  timeslotTemplates TimeslotTemplate[]
+  timeslots  Timeslot[]
+}
+
+enum VehicleClass {
+  SEDAN
+  SUV
+  VAN
+  TRUCK
+}
+
+model ItemVariation {
+  id           String        @id @default(uuid())
+  opItemId     String
+  opItem       OpItem        @relation(fields: [opItemId], references: [id])
+  name         String        // "Underbody Pressure Wash", "Oscar: AED 219"
+  description  String?
+  priceAED     Decimal       @db.Decimal(10, 2)
+  durationMins Int
+  vehicleClass VehicleClass?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+
+  priceRules   PriceRule[]
+  shipments    Shipment[]
+  shipmentAddOns ShipmentAddOn[]
+}
+
+// Zone/time-based overrides layered on the base price, rather than
+// duplicating price per zone — keeps promos/surge flexible.
+model PriceRule {
+  id              String        @id @default(uuid())
+  itemVariationId String
+  itemVariation   ItemVariation @relation(fields: [itemVariationId], references: [id])
+  zoneId          String?       // null = applies everywhere
+  zone            Zone?         @relation(fields: [zoneId], references: [id])
+  multiplier      Decimal       @default(1.0) @db.Decimal(4, 2)
+  fixedAdjustment Decimal?      @db.Decimal(10, 2)
+  validFrom       DateTime?
+  validTo         DateTime?
+  createdAt       DateTime      @default(now())
+}
+
+// ============================================================
+// 6. Zones (real PostGIS polygons)
+// ============================================================
+
+model Zone {
+  id       String   @id @default(uuid())
+  code     String   @unique // "UAEDXBCWPPMRD"
+  name     String           // "Mirdif_Deira_PP"
+  boundary Unsupported("geometry(Polygon,4326)")
+  isActive Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  addresses  Address[]
+  priceRules PriceRule[]
+  timeslotTemplates TimeslotTemplate[]
+  timeslots  Timeslot[]
+  shifts     Shift[]
+  shiftActivities ShiftActivity[]
+}
+
+// ============================================================
+// 7. Timeslots — recurring template + materialized dated instances
+// ============================================================
+
+model TimeslotTemplate {
+  id             String   @id @default(uuid())
+  opItemId       String
+  opItem         OpItem   @relation(fields: [opItemId], references: [id])
+  zoneId         String
+  zone           Zone     @relation(fields: [zoneId], references: [id])
+  startTime      String   // "HH:MM", time-of-day only
+  endTime        String
+  recurrenceRule String   // "DAILY", "WEEKDAYS", "WEEKENDS", ...
+  capacity       Int
+  buffer         Int      @default(0)
+  timeslotType   String   @default("STANDARD") // STANDARD | PRIORITY
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  timeslots Timeslot[]
+}
+
+model Timeslot {
+  id           String    @id @default(uuid())
+  templateId   String?   // null if manually created as a one-off
+  template     TimeslotTemplate? @relation(fields: [templateId], references: [id])
+  opItemId     String
+  opItem       OpItem    @relation(fields: [opItemId], references: [id])
+  zoneId       String
+  zone         Zone      @relation(fields: [zoneId], references: [id])
+  date         DateTime  @db.Date
+  startTime    DateTime
+  endTime      DateTime
+  capacity     Int
+  buffer       Int       @default(0)
+  bookedCount  Int       @default(0)
+  timeslotType String    @default("STANDARD")
+  createdAt    DateTime  @default(now())
+
+  orders       Order[]
+  capacityLogs TimeslotCapacityLog[]
+
+  @@unique([opItemId, zoneId, date, startTime])
+}
+
+// Matches the admin panel's per-slot "View log" exactly
+model TimeslotCapacityLog {
+  id         String   @id @default(uuid())
+  timeslotId String
+  timeslot   Timeslot @relation(fields: [timeslotId], references: [id])
+  changeType String   // "booked" | "released" | "manual_adjustment"
+  delta      Int
+  reason     String?
+  actorId    String?
+  createdAt  DateTime @default(now())
+}
+
+// ============================================================
+// 8. Assets, Pilots, Shifts, Breaks, Live location
+// ============================================================
+
+model Asset {
+  id        String   @id @default(uuid())
+  plateCode String   // "Y14431"
+  name      String   // "Washlab-Y14431"
+  type      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  shifts Shift[]
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Shift {
+  id        String      @id @default(uuid())
+  pilotId   String
+  pilot     Pilot       @relation(fields: [pilotId], references: [id])
+  assetId   String
+  asset     Asset       @relation(fields: [assetId], references: [id])
+  zoneId    String
+  zone      Zone        @relation(fields: [zoneId], references: [id])
+  startTime DateTime
+  endTime   DateTime
+  status    ShiftStatus @default(SCHEDULED)
+  createdAt DateTime    @default(now())
+
+  activities ShiftActivity[]
+  events     ShiftEvent[]
+  breaks     PilotBreak[]
+}
+
+model ShiftActivity {
+  id         String    @id @default(uuid())
+  shiftId    String
+  shift      Shift     @relation(fields: [shiftId], references: [id])
+  type       String    // "B2C" | "B2B"
+  zoneId     String
+  zone       Zone      @relation(fields: [zoneId], references: [id])
+  startTime  DateTime
+  endTime    DateTime
+  breakStart DateTime?
+  breakEnd   DateTime?
+  comment    String?
+}
+
+model ShiftEvent {
+  id        String   @id @default(uuid())
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id])
+  eventType String   // "created" | "started" | "ended"
+  actorId   String?
+  createdAt DateTime @default(now())
+}
+
+enum BreakReason {
+  LUNCH_BREAK
+  ACCIDENT
+  MECHANICAL_ISSUE
+  SICKNESS
+  RETURN_TO_DEPOT
+  OTHER
+}
+
+model PilotBreak {
+  id                  String      @id @default(uuid())
+  shiftId             String
+  shift               Shift       @relation(fields: [shiftId], references: [id])
+  reason              BreakReason
+  startedAt           DateTime    @default(now())
+  endedAt             DateTime?
+  durationAllowedMins Int         // countdown budget, e.g. 60 mins
+}
+
+// One row per pilot, upserted on every ping — fast for the live map view.
+model PilotLiveLocation {
+  pilotId    String   @id
+  pilot      Pilot    @relation(fields: [pilotId], references: [id])
+  location   Unsupported("geometry(Point,4326)")
+  heading    Float?
+  speedKph   Float?
+  shiftId    String?
+  recordedAt DateTime
+}
+
+// Append-only history for playback/audit — throttled on write (only every
+// ~15-30s or on meaningful movement gets persisted here, not every raw
+// ping), pruned by a background job after N days.
+model PilotLocationPing {
+  id         String   @id @default(uuid())
+  pilotId    String
+  pilot      Pilot    @relation(fields: [pilotId], references: [id])
+  location   Unsupported("geometry(Point,4326)")
+  heading    Float?
+  speedKph   Float?
+  recordedAt DateTime @default(now())
+
+  @@index([pilotId, recordedAt])
+}
+
+// ============================================================
+// 9. Orders, Shipments, Checks, Issues, Payments
+// ============================================================
+
+enum PaymentStatus {
+  PENDING
+  HOLD_SUCCESS
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id               String        @id @default(uuid())
+  orderNumber      String        @unique // human-friendly, e.g. "14295643"
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  addressId        String
+  address          Address       @relation(fields: [addressId], references: [id])
+  timeslotId       String
+  timeslot         Timeslot      @relation(fields: [timeslotId], references: [id])
+  paymentStatus    PaymentStatus @default(PENDING)
+  totalAED         Decimal       @db.Decimal(10, 2)
+  // Denormalized flag, recomputed whenever a shipment's status changes —
+  // true once every shipment is COMPLETED or has an Issue raised against it.
+  // This is what gates "Complete order" on the pilot app.
+  allItemsResolved Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+
+  notes     OrderNote[]
+  shipments Shipment[]
+  payment   Payment?
+  issues    Issue[]
+}
+
+model OrderNote {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  authorType String   // "customer" | "pilot" | "admin"
+  authorId   String?
+  text       String
+  createdAt  DateTime @default(now())
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  orderId     String        @unique
+  order       Order         @relation(fields: [orderId], references: [id])
+  provider    String        // "stripe"
+  status      PaymentStatus
+  amountAED   Decimal       @db.Decimal(10, 2)
+  providerRef String?       // Stripe PaymentIntent ID
+  createdAt   DateTime      @default(now())
+}
+
+// One Shipment per (vehicle x item variation) pair within an Order — a
+// single vehicle can have multiple independent line items (e.g. wash +
+// sunshade), each tracked and checked off separately.
+enum ShipmentStatus {
+  CREATED
+  ASSIGNED
+  ON_THE_WAY
+  ARRIVED
+  PRE_CHECK_PENDING
+  PRE_CHECK_DONE
+  IN_PROGRESS
+  POST_CHECK_PENDING
+  POST_CHECK_DONE
+  COMPLETED
+  ISSUE_RAISED
+  CANCELLED
+}
+
+model Shipment {
+  id              String         @id @default(uuid())
+  shipmentNumber  String         @unique // "4008593"
+  orderId         String
+  order           Order          @relation(fields: [orderId], references: [id])
+  vehicleId       String
+  vehicle         Vehicle        @relation(fields: [vehicleId], references: [id])
+  itemVariationId String
+  itemVariation   ItemVariation  @relation(fields: [itemVariationId], references: [id])
+  pilotId         String?
+  assetId         String?
+  status          ShipmentStatus @default(CREATED)
+  estimatedQty    Decimal        @default(1) @db.Decimal(10, 2)
+  deliveredQty    Decimal        @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime       @default(now())
+
+  addOns        ShipmentAddOn[]
+  checks        VehicleCheck[]
+  issues        Issue[]
+  statusHistory ShipmentStatusEvent[]
+}
+
+model ShipmentAddOn {
+  id              String        @id @default(uuid())
+  shipmentId      String
+  shipment        Shipment      @relation(fields: [shipmentId], references: [id])
+  itemVariationId String
+  itemVariation   ItemVariation @relation(fields: [itemVariationId], references: [id])
+  priceAED        Decimal       @db.Decimal(10, 2)
+}
+
+// Matches the admin panel's shipment timeline exactly: status + actor +
+// timestamp, append-only.
+model ShipmentStatusEvent {
+  id         String         @id @default(uuid())
+  shipmentId String
+  shipment   Shipment       @relation(fields: [shipmentId], references: [id])
+  status     ShipmentStatus
+  actorType  String         // "user" | "pilot" | "system" | "admin"
+  actorId    String?
+  actorLabel String?        // denormalized, e.g. "CPCW Adil (cw.pilot167.ae@cafu.com)"
+  createdAt  DateTime       @default(now())
+}
+
+enum CheckPhase {
+  PRE
+  POST
+}
+
+// One row per pre-check or post-check submission. Immutable once
+// confirmed ("All information added cannot be changed") — enforced at the
+// API layer by rejecting updates once confirmedAt is set.
+model VehicleCheck {
+  id          String     @id @default(uuid())
+  shipmentId  String
+  shipment    Shipment   @relation(fields: [shipmentId], references: [id])
+  phase       CheckPhase
+  photoUrls   String[]   // min 2 enforced at the API layer
+  notes       String?
+  confirmedAt DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@unique([shipmentId, phase])
+}
+
+enum IssueReason {
+  GATE_GARAGE_CLOSED
+  NUMBER_PLATE_NOT_MATCHING
+  UNABLE_TO_REACH_LOCATION
+  VEHICLE_NOT_AVAILABLE
+  VEHICLE_PARKED_UNSAFE_AREA
+  BY_CONTROL_CENTRE
+  ACCESS_DENIED_BY_SECURITY
+  VEHICLE_IN_PAID_PARKING
+  OTHER
+}
+
+model Issue {
+  id         String      @id @default(uuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id])
+  shipmentId String?     // null = order-wide issue (e.g. "Unable to reach location")
+  shipment   Shipment?   @relation(fields: [shipmentId], references: [id])
+  reason     IssueReason
+  notes      String?
+  photoUrls  String[]    // min 2 enforced at the API layer
+  raisedById String
+  raisedBy   Pilot       @relation(fields: [raisedById], references: [id])
+  createdAt  DateTime    @default(now())
+}
+
+// ============================================================
+// 10. Offline-sync idempotency (pilot app)
+// ============================================================
+
+model IdempotencyRecord {
+  id           String    @id @default(uuid()) // same value as the client's queue entry id
+  actorType    ActorType
+  actorId      String
+  endpoint     String
+  responseBody Json?
+  createdAt    DateTime  @default(now())
+
+  @@unique([actorType, actorId, id])
+}

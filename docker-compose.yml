@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: fleetcaring-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fleetcaring
+      POSTGRES_PASSWORD: fleetcaring_dev
+      POSTGRES_DB: fleetcaring
+    ports:
+      - "5432:5432"
+    volumes:
+      - fleetcaring_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleetcaring -d fleetcaring"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: fleetcaring-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - fleetcaring_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fleetcaring_pg_data:
+  fleetcaring_redis_data:
