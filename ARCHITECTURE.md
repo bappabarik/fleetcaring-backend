@@ -8,35 +8,35 @@ was scaffolded.
 ## 1. System overview
 
 ```
-┌──────────────┐   ┌──────────────┐   ┌───────────────────┐
-│ FleetCaring   │   │ Pilot App     │   │ Admin Panel (web)  │
-│ (customer,    │   │ (React Native,│   │ (React/Next.js)    │
-│  Expo/RN)     │   │  offline-first)│  │                    │
+┌──────────────┐   ┌───────────────┐   ┌────────────────────┐
+│ FleetCaring  │   │ Pilot App     │   │ Admin Panel (web)  │
+│ (customer,   │   │ (React Native,│   │ (React/Next.js)    │
+│  Expo/RN)    │   │ offline-first)│   │                    │
 └──────┬───────┘   └──────┬────────┘   └─────────┬──────────┘
-       │ REST + WS         │ REST + WS             │ REST + WS
-       ▼                   ▼                       ▼
-┌────────────────────────────────────────────────────────────┐
+       │ REST + WS        │ REST + WS            │ REST + WS
+       ▼                  ▼                      ▼
+┌─────────────────────────────────────────────────────────────┐
 │                  Fastify API (modular monolith)             │
-│  auth │ catalog │ zones │ timeslots │ orders │ shipments     │
-│  pilots │ shifts │ admin/rbac │ payments │ notifications     │
-│  ┌────────────┐  ┌─────────────┐  ┌────────────────────┐   │
+│  auth │ catalog │ zones │ timeslots │ orders │ shipments    │
+│  pilots │ shifts │ admin/rbac │ payments │ notifications    │
+│  ┌────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
 │  │ REST routes│  │ WS Gateway  │  │ BullMQ workers      │   │
 │  └─────┬──────┘  └──────┬──────┘  └──────────┬──────────┘   │
-└────────┼─────────────────┼───────────────────┼──────────────┘
-         │                 │                   │
-         ▼                 ▼                   ▼
+└────────┼────────────────┼────────────────────┼──────────────┘
+         │                │                    │
+         ▼                ▼                    ▼
   ┌─────────────┐  ┌───────────────┐   ┌─────────────────┐
-  │ Neon         │  │ Redis (TCP)   │   │ Redis (BullMQ)  │
-  │ Postgres +   │  │ pub/sub for   │   │ same instance   │
-  │ PostGIS      │  │ WS fan-out    │   │                 │
+  │ Neon        │  │ Redis (TCP)   │   │ Redis (BullMQ)  │
+  │ Postgres +  │  │ pub/sub for   │   │ same instance   │
+  │ PostGIS     │  │ WS fan-out    │   │                 │
   └─────────────┘  └───────────────┘   └─────────────────┘
          │
          ▼
-┌──────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────┐
 │  Third-party services                                      │
 │  Twilio (OTP/SMS) │ Stripe (payments) │ Firebase FCM (push)│
-│  Cloudflare R2 (photo/document storage, S3-compatible)      │
-└──────────────────────────────────────────────────────────┘
+│  Cloudflare R2 (photo/document storage, S3-compatible)     │
+└────────────────────────────────────────────────────────────┘
 ```
 
 **Deployment target:** Railway for the Fastify app (needs to hold
