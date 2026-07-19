@@ -300,6 +300,8 @@ model TimeslotTemplate {
   capacity       Int
   buffer         Int      @default(0)
   timeslotType   String   @default("STANDARD") // STANDARD | PRIORITY
+  startDate      DateTime @db.Date // when this template starts generating dated slots
+  endDate        DateTime? @db.Date // null = generates indefinitely
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
 

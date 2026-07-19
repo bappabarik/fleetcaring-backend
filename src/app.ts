@@ -11,6 +11,7 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { AppError } from "./lib/errors.js";
 import { zonesRoutes } from "./modules/zones/zones.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
+import { timeslotsRoutes } from "./modules/timeslots/timeslots.routes.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -75,6 +76,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes, { prefix: "/auth" });
   await app.register(zonesRoutes, { prefix: "/zones" });
   await app.register(catalogRoutes, { prefix: "/catalog" });
+  await app.register(timeslotsRoutes, { prefix: "/timeslots" });
   // ...more modules land here as they're built
 
   return app;
