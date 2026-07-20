@@ -177,13 +177,22 @@ export class OrdersService {
     });
   }
 
+  // ---------- Order-level pilot actions (bulk across all shipments) ----------
+
   async markEnroute(orderId: string, actorId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { shipments: true } });
     if (!order) throw new NotFoundError("Order not found");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const notOwned = order.shipments.filter((s) => s.pilotId !== actorId);
+    if (notOwned.length > 0) throw new ForbiddenError("You are not assigned to every item on this order");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const notAssigned = order.shipments.filter((s) => s.status !== "ASSIGNED");
     if (notAssigned.length > 0) throw new ConflictError("All items must be assigned before starting the trip");
+
+    const activeShift = await this.prisma.shift.findFirst({ where: { pilotId: actorId, status: "IN_PROGRESS" } });
+    if (!activeShift) throw new ConflictError("You must start your shift before beginning a trip");
 
     await this.bulkTransition(order.shipments, "ON_THE_WAY", actorId);
     return this.getOrderById(orderId);
@@ -194,6 +203,10 @@ export class OrdersService {
     if (!order) throw new NotFoundError("Order not found");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const notOwned = order.shipments.filter((s) => s.pilotId !== actorId);
+    if (notOwned.length > 0) throw new ForbiddenError("You are not assigned to every item on this order");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const notEnroute = order.shipments.filter((s) => s.status !== "ON_THE_WAY");
     if (notEnroute.length > 0) throw new ConflictError("All items must be en route before confirming arrival");
 
@@ -201,9 +214,13 @@ export class OrdersService {
     return this.getOrderById(orderId);
   }
 
-  async completeOrder(orderId: string) {
+  async completeOrder(orderId: string, actorId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { shipments: true } });
     if (!order) throw new NotFoundError("Order not found");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const notOwned = order.shipments.filter((s) => s.pilotId !== actorId);
+    if (notOwned.length > 0) throw new ForbiddenError("You are not assigned to every item on this order");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unresolved = order.shipments.filter((s) => s.status !== "COMPLETED" && s.status !== "ISSUE_RAISED");

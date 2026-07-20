@@ -2,6 +2,7 @@ import { Queue } from "bullmq";
 import { env } from "../config/env.js";
 
 export const TIMESLOT_MATERIALIZER_QUEUE = "timeslot-materializer";
+export const BREAK_EXPIRY_QUEUE = "break-expiry";
 
 /**
  * BullMQ bundles its own internal copy of ioredis, which is a distinct
@@ -25,6 +26,13 @@ export function parseRedisConnectionOptions(url: string) {
 
 export function createTimeslotMaterializerQueue(): Queue {
   return new Queue(TIMESLOT_MATERIALIZER_QUEUE, {
+    connection: parseRedisConnectionOptions(env.REDIS_URL),
+  });
+}
+
+
+export function createBreakExpiryQueue(): Queue {
+  return new Queue(BREAK_EXPIRY_QUEUE, {
     connection: parseRedisConnectionOptions(env.REDIS_URL),
   });
 }

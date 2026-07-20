@@ -1,0 +1,198 @@
+import type { FastifyInstance } from "fastify";
+import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
+import type { CreateShiftBody, StartBreakBody } from "./shifts.schemas.js";
+
+const DEFAULT_BREAK_MINUTES = 60;
+
+export class ShiftsService {
+  constructor(private app: FastifyInstance) {}
+
+  private get prisma() {
+    return this.app.prisma;
+  }
+
+  async createShift(data: CreateShiftBody) {
+    const pilot = await this.prisma.pilot.findUnique({ where: { id: data.pilotId } });
+    if (!pilot) throw new NotFoundError("Pilot not found");
+    const asset = await this.prisma.asset.findUnique({ where: { id: data.assetId } });
+    if (!asset) throw new NotFoundError("Asset not found");
+    const zone = await this.prisma.zone.findUnique({ where: { id: data.zoneId } });
+    if (!zone) throw new NotFoundError("Zone not found");
+
+    const overlappingPilotShift = await this.prisma.shift.findFirst({
+      where: {
+        pilotId: data.pilotId,
+        status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+        startTime: { lt: data.endTime },
+        endTime: { gt: data.startTime },
+      },
+    });
+    if (overlappingPilotShift) throw new ConflictError("This pilot already has an overlapping shift");
+
+    const overlappingAssetShift = await this.prisma.shift.findFirst({
+      where: {
+        assetId: data.assetId,
+        status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+        startTime: { lt: data.endTime },
+        endTime: { gt: data.startTime },
+      },
+    });
+    if (overlappingAssetShift) throw new ConflictError("This asset already has an overlapping shift");
+
+    const shift = await this.prisma.shift.create({ data });
+    await this.prisma.shiftEvent.create({ data: { shiftId: shift.id, eventType: "created" } });
+    return shift;
+  }
+
+  async listShifts(pilotId?: string) {
+    return this.prisma.shift.findMany({
+      where: pilotId ? { pilotId } : undefined,
+      include: { pilot: true, asset: true, zone: true },
+      orderBy: { startTime: "desc" },
+    });
+  }
+
+  async getShiftById(id: string) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id },
+      include: { pilot: true, asset: true, zone: true, breaks: true, events: true },
+    });
+    if (!shift) throw new NotFoundError("Shift not found");
+    return shift;
+  }
+
+  async startShift(shiftId: string, actorId: string) {
+    const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
+    if (!shift) throw new NotFoundError("Shift not found");
+    if (shift.pilotId !== actorId) throw new ForbiddenError("This is not your shift");
+    if (shift.status !== "SCHEDULED") {
+      throw new ConflictError(`Shift can only be started from SCHEDULED (current: ${shift.status})`);
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.shift.update({ where: { id: shiftId }, data: { status: "IN_PROGRESS" } }),
+      this.prisma.shiftEvent.create({ data: { shiftId, eventType: "started", actorId } }),
+    ]);
+
+    return this.getShiftById(shiftId);
+  }
+
+  async endShift(shiftId: string, actorId: string) {
+    const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
+    if (!shift) throw new NotFoundError("Shift not found");
+    if (shift.pilotId !== actorId) throw new ForbiddenError("This is not your shift");
+    if (shift.status !== "IN_PROGRESS") {
+      throw new ConflictError(`Shift can only be ended from IN_PROGRESS (current: ${shift.status})`);
+    }
+
+    const activeBreak = await this.prisma.pilotBreak.findFirst({ where: { shiftId, endedAt: null } });
+    if (activeBreak) throw new ConflictError("End your current break before ending the shift");
+
+    await this.prisma.$transaction([
+      this.prisma.shift.update({ where: { id: shiftId }, data: { status: "COMPLETED" } }),
+      this.prisma.shiftEvent.create({ data: { shiftId, eventType: "ended", actorId } }),
+    ]);
+
+    return this.getShiftById(shiftId);
+  }
+
+  async startBreak(shiftId: string, actorId: string, data: StartBreakBody) {
+    const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
+    if (!shift) throw new NotFoundError("Shift not found");
+    if (shift.pilotId !== actorId) throw new ForbiddenError("This is not your shift");
+    if (shift.status !== "IN_PROGRESS") {
+      throw new ConflictError("You can only take a break during an active shift");
+    }
+
+    const existingActiveBreak = await this.prisma.pilotBreak.findFirst({ where: { shiftId, endedAt: null } });
+    if (existingActiveBreak) throw new ConflictError("You're already on a break");
+
+    return this.prisma.pilotBreak.create({
+      data: {
+        shiftId,
+        reason: data.reason,
+        durationAllowedMins: data.durationAllowedMins ?? DEFAULT_BREAK_MINUTES,
+      },
+    });
+  }
+
+  async endBreak(shiftId: string, breakId: string, actorId: string) {
+    const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
+    if (!shift) throw new NotFoundError("Shift not found");
+    if (shift.pilotId !== actorId) throw new ForbiddenError("This is not your shift");
+
+    const pilotBreak = await this.prisma.pilotBreak.findUnique({ where: { id: breakId } });
+    if (!pilotBreak || pilotBreak.shiftId !== shiftId) throw new NotFoundError("Break not found on this shift");
+    if (pilotBreak.endedAt) throw new ConflictError("This break has already ended");
+
+    return this.prisma.pilotBreak.update({ where: { id: breakId }, data: { endedAt: new Date() } });
+  }
+
+  async expireOverdueBreaks(): Promise<{ expired: number }> {
+    const activeBreaks = await this.prisma.pilotBreak.findMany({ where: { endedAt: null } });
+    const now = Date.now();
+
+    let expiredCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const b of activeBreaks as any[]) {
+      const deadline = b.startedAt.getTime() + b.durationAllowedMins * 60_000;
+      if (deadline <= now) {
+        await this.prisma.$transaction([
+          this.prisma.pilotBreak.update({ where: { id: b.id }, data: { endedAt: new Date(deadline) } }),
+          this.prisma.shiftEvent.create({
+            data: { shiftId: b.shiftId, eventType: "break_expired", actorId: null },
+          }),
+        ]);
+        expiredCount++;
+      }
+    }
+
+    return { expired: expiredCount };
+  }
+
+  async getPilotDashboard(pilotId: string) {
+    const now = new Date();
+
+    const inProgressShift = await this.prisma.shift.findFirst({
+      where: { pilotId, status: "IN_PROGRESS" },
+      include: { asset: true, zone: true },
+    });
+
+    if (inProgressShift) {
+      const activeBreak = await this.prisma.pilotBreak.findFirst({
+        where: { shiftId: inProgressShift.id, endedAt: null },
+      });
+
+      return {
+        state: activeBreak ? "ON_BREAK" : "ON_DUTY",
+        shift: inProgressShift,
+        activeBreak: activeBreak
+          ? {
+              ...activeBreak,
+              remainingMins: Math.max(
+                0,
+                Math.round(
+                  (activeBreak.startedAt.getTime() +
+                    activeBreak.durationAllowedMins * 60_000 -
+                    now.getTime()) /
+                    60_000
+                )
+              ),
+            }
+          : null,
+      };
+    }
+
+    const nextShift = await this.prisma.shift.findFirst({
+      where: { pilotId, status: "SCHEDULED", startTime: { gte: now } },
+      orderBy: { startTime: "asc" },
+      include: { asset: true, zone: true },
+    });
+
+    return {
+      state: nextShift ? "SHIFT_SCHEDULED" : "NO_SHIFT",
+      shift: nextShift ?? null,
+      activeBreak: null,
+    };
+  }
+}

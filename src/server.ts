@@ -1,7 +1,8 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
-import { createTimeslotMaterializerQueue } from "./lib/queues.js";
+import { createTimeslotMaterializerQueue, createBreakExpiryQueue } from "./lib/queues.js";
 import { startTimeslotMaterializerWorker } from "./workers/timeslotMaterializer.worker.js";
+import { startBreakExpiryWorker } from "./workers/breakExpiry.worker.js";
 
 async function main() {
   const app = await buildApp();
@@ -14,10 +15,6 @@ async function main() {
     process.exit(1);
   }
 
-  // --- Background jobs: nightly timeslot materialization ---
-  // Running the worker in the same process as the API is a deliberate,
-  // pragmatic choice at this scale (single modular monolith) — split into
-  // a separate worker process later if job volume ever demands it.
   const materializerQueue = createTimeslotMaterializerQueue();
   await materializerQueue.add(
     "nightly-materialize",
@@ -26,10 +23,20 @@ async function main() {
   );
   const materializerWorker = startTimeslotMaterializerWorker(app);
 
+  const breakExpiryQueue = createBreakExpiryQueue();
+  await breakExpiryQueue.add(
+    "check-overdue-breaks",
+    {},
+    { repeat: { pattern: "* * * * *" }, jobId: "check-overdue-breaks" }
+  );
+  const breakExpiryWorker = startBreakExpiryWorker(app);
+
   const shutdown = async (signal: string) => {
     app.log.info(`Received ${signal}, shutting down gracefully...`);
     await materializerWorker.close();
     await materializerQueue.close();
+    await breakExpiryWorker.close();
+    await breakExpiryQueue.close();
     await app.close();
     process.exit(0);
   };

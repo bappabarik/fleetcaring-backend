@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { NotFoundError, BadRequestError, ConflictError } from "../../lib/errors.js";
+import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from "../../lib/errors.js";
 import type { AssignShipmentBody, CheckSubmissionBody, RaiseIssueBody } from "./shipments.schemas.js";
 import { Prisma } from "@prisma/client";
 
@@ -37,6 +37,7 @@ export class ShipmentsService {
 
     const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
     if (!shipment) throw new NotFoundError("Shipment not found");
+    if (shipment.pilotId !== actorId) throw new ForbiddenError("This shipment is not assigned to you");
     if (shipment.status !== "ARRIVED") {
       throw new ConflictError(`Pre-check can only be submitted once arrived (current status: ${shipment.status})`);
     }
@@ -64,6 +65,7 @@ export class ShipmentsService {
 
     const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
     if (!shipment) throw new NotFoundError("Shipment not found");
+    if (shipment.pilotId !== actorId) throw new ForbiddenError("This shipment is not assigned to you");
     if (shipment.status !== "IN_PROGRESS") {
       throw new ConflictError(`Post-check can only be submitted while in progress (current status: ${shipment.status})`);
     }
@@ -91,12 +93,19 @@ export class ShipmentsService {
   async raiseIssue(orderId: string, actorId: string, data: RaiseIssueBody) {
     this.assertEnoughPhotos(data.photoUrls);
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { shipments: true } });
     if (!order) throw new NotFoundError("Order not found");
 
     if (data.shipmentId) {
       const shipment = await this.prisma.shipment.findUnique({ where: { id: data.shipmentId } });
       if (!shipment || shipment.orderId !== orderId) throw new NotFoundError("Shipment not found on this order");
+      if (shipment.pilotId !== actorId) throw new ForbiddenError("This shipment is not assigned to you");
+    } else {
+      // Order-wide issue (e.g. "unable to reach location") — the pilot
+      // must own at least one shipment on this order to raise it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ownsAny = order.shipments.some((s: any) => s.pilotId === actorId);
+      if (!ownsAny) throw new ForbiddenError("You are not assigned to any item on this order");
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,6 +137,8 @@ export class ShipmentsService {
 
     return issue;
   }
+
+  // ---------- Internal helpers ----------
 
   private assertEnoughPhotos(photoUrls: string[]) {
     if (photoUrls.length < MIN_CHECK_PHOTOS) {

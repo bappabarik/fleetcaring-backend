@@ -31,6 +31,8 @@ export async function ordersRoutes(app: FastifyInstance) {
     return reply.send(await ordersService.getOrderById(id, requestingUserId));
   });
 
+  // ---------- Pilot order-level actions ----------
+
   app.post("/:id/enroute", { preHandler: requireActor("PILOT") }, async (request, reply) => {
     const { id } = request.params as { id: string };
     return reply.send(await ordersService.markEnroute(id, request.user.sub));
@@ -43,7 +45,7 @@ export async function ordersRoutes(app: FastifyInstance) {
 
   app.post("/:id/complete", { preHandler: requireActor("PILOT") }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    return reply.send(await ordersService.completeOrder(id));
+    return reply.send(await ordersService.completeOrder(id, request.user.sub));
   });
 
   app.post("/:id/issues", { preHandler: requireActor("PILOT") }, async (request, reply) => {
