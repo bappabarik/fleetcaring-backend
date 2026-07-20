@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { NotFoundError, ConflictError } from "../../lib/errors.js";
 import { startOfDay, addDays, generateMatchingDates, combineDateAndTime } from "../../lib/dateUtils.js";
 import type { CreateTemplateBody, UpdateTemplateBody } from "./timeslots.schemas.js";
+import { Prisma } from "@prisma/client";
 
 const DEFAULT_MATERIALIZATION_WINDOW_DAYS = 14;
 
@@ -97,30 +98,41 @@ export class TimeslotsService {
     });
   }
 
-  async bookSlot(timeslotId: string, actorId?: string): Promise<void> {
+async bookSlot(timeslotId: string, actorId?: string): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.prisma.$transaction(async (tx: any) => {
-      const updatedCount = await tx.$executeRaw`
-        UPDATE "Timeslot"
-        SET "bookedCount" = "bookedCount" + 1
-        WHERE id = ${timeslotId} AND "bookedCount" < (capacity - buffer)
-      `;
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await this.bookSlotInTransaction(tx, timeslotId, actorId);
+    });
+  }
 
-      if (updatedCount === 0) {
-        const slot = await tx.timeslot.findUnique({ where: { id: timeslotId } });
-        if (!slot) throw new NotFoundError("Time slot not found");
-        throw new ConflictError("This time slot is fully booked");
-      }
+  /**
+   * Same booking logic as bookSlot(), but takes an existing transaction
+   * client instead of opening its own — this is what lets order creation
+   * book the slot and create the order+shipments as one atomic unit,
+   * rather than two separate transactions that could partially succeed.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async bookSlotInTransaction(tx: Prisma.TransactionClient, timeslotId: string, actorId?: string): Promise<void> {
+    const updatedCount = await tx.$executeRaw`
+      UPDATE "Timeslot"
+      SET "bookedCount" = "bookedCount" + 1
+      WHERE id = ${timeslotId} AND "bookedCount" < (capacity - buffer)
+    `;
 
-      await tx.timeslotCapacityLog.create({
-        data: { timeslotId, changeType: "booked", delta: 1, actorId },
-      });
+    if (updatedCount === 0) {
+      const slot = await tx.timeslot.findUnique({ where: { id: timeslotId } });
+      if (!slot) throw new NotFoundError("Time slot not found");
+      throw new ConflictError("This time slot is fully booked");
+    }
+
+    await tx.timeslotCapacityLog.create({
+      data: { timeslotId, changeType: "booked", delta: 1, actorId },
     });
   }
 
   async releaseSlot(timeslotId: string, actorId?: string, reason?: string): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await this.prisma.$transaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.$executeRaw`
         UPDATE "Timeslot"
         SET "bookedCount" = GREATEST("bookedCount" - 1, 0)

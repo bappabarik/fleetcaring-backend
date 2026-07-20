@@ -1,0 +1,158 @@
+import type { FastifyInstance } from "fastify";
+import { NotFoundError, BadRequestError, ConflictError } from "../../lib/errors.js";
+import type { AssignShipmentBody, CheckSubmissionBody, RaiseIssueBody } from "./shipments.schemas.js";
+import { Prisma } from "@prisma/client";
+
+const MIN_CHECK_PHOTOS = 2;
+
+/**
+ * NOTE: `tx: any` in the transaction callbacks below is deliberate — same
+ * reasoning as in TimeslotsService. Tighten to Prisma.TransactionClient
+ * once `prisma generate` has run for real and this can be verified.
+ */
+export class ShipmentsService {
+  constructor(private app: FastifyInstance) {}
+
+  private get prisma() {
+    return this.app.prisma;
+  }
+
+  async assign(shipmentId: string, data: AssignShipmentBody, actorId?: string) {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundError("Shipment not found");
+
+    await this.prisma.shipment.update({
+      where: { id: shipmentId },
+      data: { pilotId: data.pilotId, assetId: data.assetId, status: "ASSIGNED" },
+    });
+    await this.prisma.shipmentStatusEvent.create({
+      data: { shipmentId, status: "ASSIGNED", actorType: "admin", actorId },
+    });
+
+    return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
+  }
+
+  async submitPreCheck(shipmentId: string, actorId: string, data: CheckSubmissionBody) {
+    this.assertEnoughPhotos(data.photoUrls);
+
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundError("Shipment not found");
+    if (shipment.status !== "ARRIVED") {
+      throw new ConflictError(`Pre-check can only be submitted once arrived (current status: ${shipment.status})`);
+    }
+
+    await this.assertCheckNotAlreadyConfirmed(shipmentId, "PRE");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.vehicleCheck.upsert({
+        where: { shipmentId_phase: { shipmentId, phase: "PRE" } },
+        update: { photoUrls: data.photoUrls, notes: data.notes, confirmedAt: new Date() },
+        create: { shipmentId, phase: "PRE", photoUrls: data.photoUrls, notes: data.notes, confirmedAt: new Date() },
+      });
+      await tx.shipment.update({ where: { id: shipmentId }, data: { status: "IN_PROGRESS" } });
+      await tx.shipmentStatusEvent.create({
+        data: { shipmentId, status: "IN_PROGRESS", actorType: "pilot", actorId },
+      });
+    });
+
+    return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId }, include: { checks: true } });
+  }
+
+  async submitPostCheck(shipmentId: string, actorId: string, data: CheckSubmissionBody) {
+    this.assertEnoughPhotos(data.photoUrls);
+
+    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (!shipment) throw new NotFoundError("Shipment not found");
+    if (shipment.status !== "IN_PROGRESS") {
+      throw new ConflictError(`Post-check can only be submitted while in progress (current status: ${shipment.status})`);
+    }
+
+    await this.assertCheckNotAlreadyConfirmed(shipmentId, "POST");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.vehicleCheck.upsert({
+        where: { shipmentId_phase: { shipmentId, phase: "POST" } },
+        update: { photoUrls: data.photoUrls, notes: data.notes, confirmedAt: new Date() },
+        create: { shipmentId, phase: "POST", photoUrls: data.photoUrls, notes: data.notes, confirmedAt: new Date() },
+      });
+      await tx.shipment.update({ where: { id: shipmentId }, data: { status: "COMPLETED" } });
+      await tx.shipmentStatusEvent.create({
+        data: { shipmentId, status: "COMPLETED", actorType: "pilot", actorId },
+      });
+    });
+
+    await this.recomputeOrderResolution(shipment.orderId);
+
+    return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId }, include: { checks: true } });
+  }
+
+  async raiseIssue(orderId: string, actorId: string, data: RaiseIssueBody) {
+    this.assertEnoughPhotos(data.photoUrls);
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundError("Order not found");
+
+    if (data.shipmentId) {
+      const shipment = await this.prisma.shipment.findUnique({ where: { id: data.shipmentId } });
+      if (!shipment || shipment.orderId !== orderId) throw new NotFoundError("Shipment not found on this order");
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const issue = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const created = await tx.issue.create({
+        data: {
+          orderId,
+          shipmentId: data.shipmentId ?? null,
+          reason: data.reason,
+          notes: data.notes,
+          photoUrls: data.photoUrls,
+          raisedById: actorId,
+        },
+      });
+
+      if (data.shipmentId) {
+        await tx.shipment.update({ where: { id: data.shipmentId }, data: { status: "ISSUE_RAISED" } });
+        await tx.shipmentStatusEvent.create({
+          data: { shipmentId: data.shipmentId, status: "ISSUE_RAISED", actorType: "pilot", actorId },
+        });
+      }
+
+      return created;
+    });
+
+    if (data.shipmentId) {
+      await this.recomputeOrderResolution(orderId);
+    }
+
+    return issue;
+  }
+
+  private assertEnoughPhotos(photoUrls: string[]) {
+    if (photoUrls.length < MIN_CHECK_PHOTOS) {
+      throw new BadRequestError(`At least ${MIN_CHECK_PHOTOS} photos are required`);
+    }
+  }
+
+  private async assertCheckNotAlreadyConfirmed(shipmentId: string, phase: "PRE" | "POST") {
+    const existing = await this.prisma.vehicleCheck.findUnique({
+      where: { shipmentId_phase: { shipmentId, phase } },
+    });
+    if (existing?.confirmedAt) {
+      throw new ConflictError(`${phase === "PRE" ? "Pre" : "Post"}-check has already been confirmed and cannot be changed`);
+    }
+  }
+
+  /** Recomputes Order.allItemsResolved — true once every shipment on the
+   * order is COMPLETED or has had an Issue raised against it. This is the
+   * gate the pilot app's "Complete order" button checks; it does NOT set
+   * Order.completedAt itself — that only happens via the explicit
+   * OrdersService.completeOrder() action. */
+  private async recomputeOrderResolution(orderId: string) {
+    const shipments = await this.prisma.shipment.findMany({ where: { orderId } });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allResolved = shipments.every((s) => s.status === "COMPLETED" || s.status === "ISSUE_RAISED");
+    await this.prisma.order.update({ where: { id: orderId }, data: { allItemsResolved: allResolved } });
+  }
+}

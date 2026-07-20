@@ -478,6 +478,10 @@ model Order {
   // true once every shipment is COMPLETED or has an Issue raised against it.
   // This is what gates "Complete order" on the pilot app.
   allItemsResolved Boolean       @default(false)
+  // Set only by the explicit pilot "Complete order" action (not automatic
+  // just because allItemsResolved flips true) — matches the reference
+  // pilot app's separate confirm-dialog tap.
+  completedAt      DateTime?
   createdAt        DateTime      @default(now())
 
   notes     OrderNote[]

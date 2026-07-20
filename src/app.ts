@@ -12,6 +12,9 @@ import { AppError } from "./lib/errors.js";
 import { zonesRoutes } from "./modules/zones/zones.routes.js";
 import { catalogRoutes } from "./modules/catalog/catalog.routes.js";
 import { timeslotsRoutes } from "./modules/timeslots/timeslots.routes.js";
+import { ordersRoutes } from "./modules/orders/orders.routes.js";
+import { shipmentsRoutes } from "./modules/shipments/shipments.routes.js";
+
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -77,6 +80,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(zonesRoutes, { prefix: "/zones" });
   await app.register(catalogRoutes, { prefix: "/catalog" });
   await app.register(timeslotsRoutes, { prefix: "/timeslots" });
+  await app.register(ordersRoutes, { prefix: "/orders" });
+  await app.register(shipmentsRoutes, { prefix: "/shipments" });
   // ...more modules land here as they're built
 
   return app;
