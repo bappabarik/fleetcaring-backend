@@ -1,8 +1,9 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
-import { createTimeslotMaterializerQueue, createBreakExpiryQueue } from "./lib/queues.js";
+import { createTimeslotMaterializerQueue, createBreakExpiryQueue, createStripeWebhookQueue } from "./lib/queues.js";
 import { startTimeslotMaterializerWorker } from "./workers/timeslotMaterializer.worker.js";
 import { startBreakExpiryWorker } from "./workers/breakExpiry.worker.js";
+import { startStripeWebhookWorker } from "./workers/stripeWebhook.worker.js";
 
 async function main() {
   const app = await buildApp();
@@ -15,6 +16,10 @@ async function main() {
     process.exit(1);
   }
 
+  // --- Background jobs ---
+  // Running workers in the same process as the API is a deliberate,
+  // pragmatic choice at this scale (single modular monolith) — split into
+  // separate worker processes later if job volume ever demands it.
   const materializerQueue = createTimeslotMaterializerQueue();
   await materializerQueue.add(
     "nightly-materialize",
@@ -27,9 +32,13 @@ async function main() {
   await breakExpiryQueue.add(
     "check-overdue-breaks",
     {},
-    { repeat: { pattern: "* * * * *" }, jobId: "check-overdue-breaks" }
+    { repeat: { pattern: "* * * * *" }, jobId: "check-overdue-breaks" } // every minute
   );
   const breakExpiryWorker = startBreakExpiryWorker(app);
+
+  // No repeatable job here — this queue is only ever populated by the
+  // webhook route itself when Stripe actually delivers an event.
+  const stripeWebhookWorker = startStripeWebhookWorker(app);
 
   const shutdown = async (signal: string) => {
     app.log.info(`Received ${signal}, shutting down gracefully...`);
@@ -37,6 +46,7 @@ async function main() {
     await materializerQueue.close();
     await breakExpiryWorker.close();
     await breakExpiryQueue.close();
+    await stripeWebhookWorker.close();
     await app.close();
     process.exit(0);
   };

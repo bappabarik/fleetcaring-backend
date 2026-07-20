@@ -17,6 +17,8 @@ import { shipmentsRoutes } from "./modules/shipments/shipments.routes.js";
 import { assetsRoutes } from "./modules/assets/assets.routes.js";
 import { pilotsRoutes } from "./modules/pilots/pilots.routes.js";
 import { shiftsRoutes } from "./modules/shifts/shifts.routes.js";
+import { paymentsRoutes } from "./modules/payments/payments.routes.js";
+import { paymentsWebhookRoutes } from "./modules/payments/payments.webhook.routes.js";
 
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -88,6 +90,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(assetsRoutes, { prefix: "/assets" });
   await app.register(pilotsRoutes, { prefix: "/pilots" });
   await app.register(shiftsRoutes, { prefix: "/shifts" });
+  await app.register(paymentsRoutes, { prefix: "/payments" });
+  await app.register(paymentsWebhookRoutes, { prefix: "/payments" });
   // ...more modules land here as they're built
 
   return app;

@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 
 export const TIMESLOT_MATERIALIZER_QUEUE = "timeslot-materializer";
 export const BREAK_EXPIRY_QUEUE = "break-expiry";
+export const STRIPE_WEBHOOK_QUEUE = "stripe-webhook-processor";
 
 /**
  * BullMQ bundles its own internal copy of ioredis, which is a distinct
@@ -33,6 +34,13 @@ export function createTimeslotMaterializerQueue(): Queue {
 
 export function createBreakExpiryQueue(): Queue {
   return new Queue(BREAK_EXPIRY_QUEUE, {
+    connection: parseRedisConnectionOptions(env.REDIS_URL),
+  });
+}
+
+
+export function createStripeWebhookQueue(): Queue {
+  return new Queue(STRIPE_WEBHOOK_QUEUE, {
     connection: parseRedisConnectionOptions(env.REDIS_URL),
   });
 }
