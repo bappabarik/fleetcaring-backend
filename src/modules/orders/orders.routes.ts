@@ -5,12 +5,13 @@ import { createOrderSchema } from "./orders.schemas.js";
 import { raiseIssueSchema } from "../shipments/shipments.schemas.js";
 import { requireActor } from "../auth/rbac.middleware.js";
 import { BadRequestError } from "../../lib/errors.js";
+import { idempotent } from "../../lib/idempotency.js";
 
 export async function ordersRoutes(app: FastifyInstance) {
   const ordersService = new OrdersService(app);
   const shipmentsService = new ShipmentsService(app);
 
-  app.post("/", { preHandler: requireActor("CUSTOMER") }, async (request, reply) => {
+  app.post("/", { preHandler: [requireActor("CUSTOMER"), idempotent()] }, async (request, reply) => {
     const parsed = createOrderSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("Invalid order payload", parsed.error.flatten());
 
@@ -33,22 +34,22 @@ export async function ordersRoutes(app: FastifyInstance) {
 
   // ---------- Pilot order-level actions ----------
 
-  app.post("/:id/enroute", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/enroute", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     return reply.send(await ordersService.markEnroute(id, request.user.sub));
   });
 
-  app.post("/:id/confirm-arrival", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/confirm-arrival", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     return reply.send(await ordersService.confirmArrival(id, request.user.sub));
   });
 
-  app.post("/:id/complete", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/complete", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     return reply.send(await ordersService.completeOrder(id, request.user.sub));
   });
 
-  app.post("/:id/issues", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/issues", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const parsed = raiseIssueSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
     const { id } = request.params as { id: string };

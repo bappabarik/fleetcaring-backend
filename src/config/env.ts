@@ -19,6 +19,7 @@ const envSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional().default(""),
   R2_SECRET_ACCESS_KEY: z.string().optional().default(""),
   R2_BUCKET_NAME: z.string().optional().default("fleetcaring-uploads"),
+  R2_PUBLIC_URL: z.string().optional().default(""), // e.g. "https://pub-xxxx.r2.dev" or a custom domain, no trailing slash
   PORT: z.coerce.number().default(4000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),

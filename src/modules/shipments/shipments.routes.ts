@@ -4,6 +4,7 @@ import { assignShipmentSchema, checkSubmissionSchema } from "./shipments.schemas
 import { requireActor, requirePermission } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../lib/permissions.js";
 import { BadRequestError } from "../../lib/errors.js";
+import { idempotent } from "../../lib/idempotency.js";
 
 export async function shipmentsRoutes(app: FastifyInstance) {
   const shipmentsService = new ShipmentsService(app);
@@ -19,14 +20,14 @@ export async function shipmentsRoutes(app: FastifyInstance) {
     }
   );
 
-  app.post("/:id/pre-check", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/pre-check", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const parsed = checkSubmissionSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
     const { id } = request.params as { id: string };
     return reply.send(await shipmentsService.submitPreCheck(id, request.user.sub, parsed.data));
   });
 
-  app.post("/:id/post-check", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+  app.post("/:id/post-check", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {
     const parsed = checkSubmissionSchema.safeParse(request.body);
     if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
     const { id } = request.params as { id: string };

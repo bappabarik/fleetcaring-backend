@@ -21,6 +21,8 @@ import { paymentsRoutes } from "./modules/payments/payments.routes.js";
 import { paymentsWebhookRoutes } from "./modules/payments/payments.webhook.routes.js";
 import realtimePlugin from "./plugins/realtime.js";
 import { realtimeRoutes } from "./modules/realtime/realtime.routes.js";
+import idempotencyPlugin from "./plugins/idempotency.js";
+import { uploadsRoutes } from "./modules/uploads/uploads.routes.js";
 
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -66,6 +68,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(prismaPlugin);
   await app.register(redisPlugin);
   await app.register(realtimePlugin);
+  await app.register(idempotencyPlugin);
 
   // --- Health check ---
   app.get("/health", async () => {
@@ -96,6 +99,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(paymentsRoutes, { prefix: "/payments" });
   await app.register(paymentsWebhookRoutes, { prefix: "/payments" });
   await app.register(realtimeRoutes, { prefix: "/realtime" });
+  await app.register(uploadsRoutes, { prefix: "/uploads" });
   // ...more modules land here as they're built
 
   return app;

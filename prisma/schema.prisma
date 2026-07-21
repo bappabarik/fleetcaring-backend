@@ -640,6 +640,7 @@ model IdempotencyRecord {
   actorType    ActorType
   actorId      String
   endpoint     String
+  statusCode   Int       @default(200)
   responseBody Json?
   createdAt    DateTime  @default(now())
 
