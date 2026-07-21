@@ -6,6 +6,7 @@ import { CatalogService } from "../catalog/catalog.service.js";
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { isGeofencingEnabled } from "../../lib/settings.js";
 import type { CreateOrderBody } from "./orders.schemas.js";
+import { PaymentsService } from "../payments/payments.service.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
 
 /** Human-friendly numeric IDs matching the reference admin panel's style
@@ -254,6 +255,60 @@ export class OrdersService {
     await notifyOrderUpdate(this.app, orderId, null, "ORDER_COMPLETED");
 
     return updated;
+  }
+
+  async cancelOrder(orderId: string, actorId: string, actorType: "CUSTOMER" | "ADMIN", reason?: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { shipments: true, payment: true },
+    });
+    if (!order) throw new NotFoundError("Order not found");
+    if (actorType === "CUSTOMER" && order.userId !== actorId) throw new ForbiddenError("Not your order");
+
+    if (order.completedAt) throw new ConflictError("A completed order can't be cancelled");
+    if (order.cancelledAt) throw new ConflictError("This order has already been cancelled");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const alreadyInProgress = order.shipments.some(
+      (s) => s.status !== "CREATED" && s.status !== "ASSIGNED"
+    );
+    if (alreadyInProgress) {
+      throw new ConflictError(
+        "This order can no longer be cancelled — the pilot has already started the trip"
+      );
+    }
+
+    if (order.payment && (order.payment.status === "CAPTURED" || order.payment.status === "HOLD_SUCCESS")) {
+      const paymentsService = new PaymentsService(this.app);
+      await paymentsService.refundPayment(orderId);
+    }
+
+    const timeslotsService = new TimeslotsService(this.app);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await timeslotsService.releaseSlotInTransaction(tx, order.timeslotId, actorId, reason ?? "Order cancelled");
+
+      for (const shipment of order.shipments) {
+        await tx.shipment.update({ where: { id: shipment.id }, data: { status: "CANCELLED" } });
+        await tx.shipmentStatusEvent.create({
+          data: { shipmentId: shipment.id, status: "CANCELLED", actorType: actorType.toLowerCase(), actorId },
+        });
+      }
+
+      await tx.order.update({
+        where: { id: orderId },
+        data: { cancelledAt: new Date(), cancellationReason: reason ?? null },
+      });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const shipment of order.shipments as any[]) {
+      await notifyOrderUpdate(this.app, orderId, shipment.id, "CANCELLED");
+    }
+    await notifyOrderUpdate(this.app, orderId, null, "ORDER_CANCELLED");
+
+    return this.getOrderById(orderId);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

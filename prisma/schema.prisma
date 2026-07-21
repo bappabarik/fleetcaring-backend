@@ -486,6 +486,8 @@ model Order {
   // just because allItemsResolved flips true) — matches the reference
   // pilot app's separate confirm-dialog tap.
   completedAt      DateTime?
+  cancelledAt      DateTime?
+  cancellationReason String?
   createdAt        DateTime      @default(now())
 
   notes     OrderNote[]

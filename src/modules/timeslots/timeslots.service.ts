@@ -21,6 +21,8 @@ export class TimeslotsService {
     return this.app.prisma;
   }
 
+  // ---------- Templates ----------
+
   async createTemplate(data: CreateTemplateBody) {
     const template = await this.prisma.timeslotTemplate.create({ data });
     const { created } = await this.materializeTemplate(template.id);
@@ -39,6 +41,8 @@ export class TimeslotsService {
     if (!template) throw new NotFoundError("Timeslot template not found");
     return this.prisma.timeslotTemplate.update({ where: { id }, data });
   }
+
+  // ---------- Materialization ----------
 
   async materializeTemplate(templateId: string, windowDays = DEFAULT_MATERIALIZATION_WINDOW_DAYS): Promise<{ created: number }> {
     const template = await this.prisma.timeslotTemplate.findUniqueOrThrow({ where: { id: templateId } });
@@ -84,6 +88,8 @@ export class TimeslotsService {
     return { templatesProcessed: templates.length, slotsCreated };
   }
 
+  // ---------- Browsing available slots (customer-facing) ----------
+
   async listAvailableSlots(opItemId: string, zoneId: string, date: Date) {
     const dayStart = startOfDay(date);
     const dayEnd = addDays(dayStart, 1);
@@ -98,7 +104,9 @@ export class TimeslotsService {
     });
   }
 
-async bookSlot(timeslotId: string, actorId?: string): Promise<void> {
+  // ---------- Capacity booking (atomic, race-safe) ----------
+
+  async bookSlot(timeslotId: string, actorId?: string): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await this.bookSlotInTransaction(tx, timeslotId, actorId);
@@ -133,15 +141,24 @@ async bookSlot(timeslotId: string, actorId?: string): Promise<void> {
   async releaseSlot(timeslotId: string, actorId?: string, reason?: string): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.$executeRaw`
-        UPDATE "Timeslot"
-        SET "bookedCount" = GREATEST("bookedCount" - 1, 0)
-        WHERE id = ${timeslotId}
-      `;
+      await this.releaseSlotInTransaction(tx, timeslotId, actorId, reason);
+    });
+  }
 
-      await tx.timeslotCapacityLog.create({
-        data: { timeslotId, changeType: "released", delta: -1, reason, actorId },
-      });
+  /** Same release logic as releaseSlot(), but composable into a caller's
+   * own transaction — needed so order cancellation can release capacity,
+   * cancel every shipment, and mark the order cancelled as one atomic
+   * unit, the same reasoning as bookSlotInTransaction back in step 5. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async releaseSlotInTransaction(tx: Prisma.TransactionClient, timeslotId: string, actorId?: string, reason?: string): Promise<void> {
+    await tx.$executeRaw`
+      UPDATE "Timeslot"
+      SET "bookedCount" = GREATEST("bookedCount" - 1, 0)
+      WHERE id = ${timeslotId}
+    `;
+
+    await tx.timeslotCapacityLog.create({
+      data: { timeslotId, changeType: "released", delta: -1, reason, actorId },
     });
   }
 

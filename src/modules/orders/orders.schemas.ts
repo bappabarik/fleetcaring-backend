@@ -9,4 +9,9 @@ export const createOrderSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const cancelOrderSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
 export type CreateOrderBody = z.infer<typeof createOrderSchema>;
+export type CancelOrderBody = z.infer<typeof cancelOrderSchema>;

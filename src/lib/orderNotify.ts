@@ -9,6 +9,8 @@ const STATUS_MESSAGES: Record<string, string> = {
   COMPLETED: "Your service has been completed.",
   ISSUE_RAISED: "There's an issue with your service — check the app for details.",
   ORDER_COMPLETED: "Your order is complete. Thanks for choosing FleetCaring!",
+  CANCELLED: "This service has been cancelled.",
+  ORDER_CANCELLED: "Your order has been cancelled.",
 };
 
 export async function notifyOrderUpdate(

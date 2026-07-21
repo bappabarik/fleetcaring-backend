@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { OrdersService } from "./orders.service.js";
 import { ShipmentsService } from "../shipments/shipments.service.js";
-import { createOrderSchema } from "./orders.schemas.js";
+import { cancelOrderSchema, createOrderSchema } from "./orders.schemas.js";
 import { raiseIssueSchema } from "../shipments/shipments.schemas.js";
 import { requireActor } from "../auth/rbac.middleware.js";
 import { BadRequestError } from "../../lib/errors.js";
@@ -31,6 +31,18 @@ export async function ordersRoutes(app: FastifyInstance) {
     const requestingUserId = request.user.actorType === "CUSTOMER" ? request.user.sub : undefined;
     return reply.send(await ordersService.getOrderById(id, requestingUserId));
   });
+
+  app.post(
+    "/:id/cancel",
+    { preHandler: [requireActor("CUSTOMER", "ADMIN"), idempotent()] },
+    async (request, reply) => {
+      const parsed = cancelOrderSchema.safeParse(request.body ?? {});
+      if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
+      const { id } = request.params as { id: string };
+      const actorType = request.user.actorType as "CUSTOMER" | "ADMIN";
+      return reply.send(await ordersService.cancelOrder(id, request.user.sub, actorType, parsed.data.reason));
+    }
+  );
 
   // ---------- Pilot order-level actions ----------
 
