@@ -32,6 +32,15 @@ export async function zonesRoutes(app: FastifyInstance) {
   });
 
   app.get(
+    "/:id/pilots/live",
+    { preHandler: requirePermission(PERMISSIONS.PILOTS_READ) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      return reply.send(await zonesService.listLivePilotsInZone(id));
+    }
+  );
+
+  app.get(
     "/resolve",
     { preHandler: requireActor("CUSTOMER", "PILOT", "ADMIN") },
     async (request, reply) => {

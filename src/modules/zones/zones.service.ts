@@ -20,6 +20,18 @@ interface ZoneRow {
   geojson: string;
 }
 
+interface LivePilotRow {
+  pilotId: string;
+  position: string;
+  heading: number | null;
+  speedKph: number | null;
+  recordedAt: Date;
+  firstName: string;
+  lastName: string;
+  code: string;
+  status: string;
+}
+
 function rowToSummary(row: ZoneRow): ZoneSummary {
   return {
     id: row.id,
@@ -124,5 +136,48 @@ export class ZonesService {
       `
     );
     return rows.length > 0 ? rowToSummary(rows[0]) : null;
+  }
+
+  /** Snapshot of every pilot currently active (on an IN_PROGRESS shift) in
+   * this zone, with their last-known position. This is what powers the
+   * admin map's INITIAL render — the WebSocket layer only broadcasts
+   * changes as they happen, so without this, an admin opening the
+   * dashboard would see an empty map until the next pilot ping arrived. */
+  async listLivePilotsInZone(zoneId: string) {
+    const rows = await this.prisma.$queryRaw<LivePilotRow[]>(
+      Prisma.sql`
+        SELECT
+          pll."pilotId",
+          ST_AsGeoJSON(pll.location) AS position,
+          pll.heading,
+          pll."speedKph",
+          pll."recordedAt",
+          p."firstName",
+          p."lastName",
+          p.code,
+          p.status
+        FROM "PilotLiveLocation" pll
+        JOIN "Shift" s ON s.id = pll."shiftId"
+        JOIN "Pilot" p ON p.id = pll."pilotId"
+        WHERE s."zoneId" = ${zoneId}
+          AND s.status = 'IN_PROGRESS'
+        ORDER BY pll."recordedAt" DESC
+      `
+    );
+
+    return rows.map((row) => {
+      const position = JSON.parse(row.position) as { type: "Point"; coordinates: [number, number] };
+      return {
+        pilotId: row.pilotId,
+        pilotName: `${row.firstName} ${row.lastName}`,
+        pilotCode: row.code,
+        pilotStatus: row.status,
+        lat: position.coordinates[1],
+        lng: position.coordinates[0],
+        heading: row.heading,
+        speedKph: row.speedKph,
+        recordedAt: row.recordedAt,
+      };
+    });
   }
 }
