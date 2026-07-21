@@ -5,6 +5,7 @@
  * discover at typo-detection speed instead of compile time.
  */
 export const PERMISSIONS = {
+  SUPER_ADMIN_ONLY: "*", // used to gate the highest-privilege actions (e.g. admin user management)
   ZONES_READ: "zones:read",
   ZONES_WRITE: "zones:write",
   CATALOG_READ: "catalog:read",
