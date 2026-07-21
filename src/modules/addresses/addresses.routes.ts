@@ -7,6 +7,10 @@ import { BadRequestError } from "../../lib/errors.js";
 export async function addressesRoutes(app: FastifyInstance) {
   const addressesService = new AddressesService(app);
 
+  app.get("/service-availability", { preHandler: requireActor("CUSTOMER") }, async (request, reply) => {
+    return reply.send(await addressesService.checkServiceAvailability(request.user.sub));
+  });
+
   app.get("/", { preHandler: requireActor("CUSTOMER") }, async (request, reply) => {
     return reply.send(await addressesService.listMyAddresses(request.user.sub));
   });

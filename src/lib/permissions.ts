@@ -29,6 +29,8 @@ export const PERMISSIONS = {
   FINANCE_READ: "finance:read",
   FINANCE_REFUND: "finance:refund",
   FINANCE_REPORTS: "finance:reports",
+  SETTINGS_READ: "settings:read",
+  SETTINGS_WRITE: "settings:write",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

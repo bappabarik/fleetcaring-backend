@@ -9,6 +9,7 @@ export const createAddressSchema = z.object({
   longitude: z.number().min(-180).max(180),
   addressText: z.string().min(1),
   notes: z.string().optional(),
+  isDefault: z.boolean().optional()
 });
 
 export const updateAddressSchema = z.object({
@@ -18,6 +19,7 @@ export const updateAddressSchema = z.object({
   longitude: z.number().min(-180).max(180).optional(),
   addressText: z.string().min(1).optional(),
   notes: z.string().nullable().optional(),
+  isDefault: z.boolean().optional()
 });
 
 export type CreateAddressBody = z.infer<typeof createAddressSchema>;

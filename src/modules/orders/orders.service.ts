@@ -4,6 +4,7 @@ import { BadRequestError, ForbiddenError, NotFoundError, ConflictError } from ".
 import { TimeslotsService } from "../timeslots/timeslots.service.js";
 import { CatalogService } from "../catalog/catalog.service.js";
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
+import { isGeofencingEnabled } from "../../lib/settings.js";
 import type { CreateOrderBody } from "./orders.schemas.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
 
@@ -60,6 +61,22 @@ export class OrdersService {
     const address = await this.prisma.address.findUnique({ where: { id: body.addressId } });
     if (!address) throw new NotFoundError("Address not found");
     if (address.ownerId !== userId) throw new ForbiddenError("This address does not belong to you");
+
+    const timeslot = await this.prisma.timeslot.findUnique({ where: { id: body.timeslotId } });
+    if (!timeslot) throw new NotFoundError("Timeslot not found");
+
+    // Geofencing enforcement: the address must actually be inside the same
+    // zone the timeslot's capacity was allocated for. Without this check,
+    // a customer could book a real, capacity-limited slot against an
+    // address outside your coverage area entirely (address.zoneId null)
+    // or in a different zone than the timeslot — nonsensical for pilot
+    // dispatch, and a real gap that existed until this check was added.
+    // Respects the admin-controlled toggle so testing doesn't require
+    // every test address to fall inside a real zone.
+    const geofencingEnabled = await isGeofencingEnabled(this.prisma);
+    if (geofencingEnabled && (!address.zoneId || address.zoneId !== timeslot.zoneId)) {
+      throw new ConflictError("This service is not available at the selected address's location");
+    }
 
     const vehicles = await this.prisma.vehicle.findMany({ where: { id: { in: body.vehicleIds } } });
     if (vehicles.length !== body.vehicleIds.length) throw new BadRequestError("One or more vehicles not found");

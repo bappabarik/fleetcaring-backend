@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
 import { NotFoundError, ForbiddenError, ConflictError } from "../../lib/errors.js";
+import { isGeofencingEnabled } from "../../lib/settings.js";
 import type { CreateAddressBody, UpdateAddressBody } from "./addresses.schemas.js";
 
 export class AddressesService {
@@ -32,6 +33,11 @@ export class AddressesService {
 
   async createAddress(ownerId: string, data: CreateAddressBody) {
     const zoneId = await this.resolveZoneId(data.latitude, data.longitude);
+
+    if (data.isDefault) {
+      await this.prisma.address.updateMany({ where: { ownerId, isDefault: true }, data: { isDefault: false } });
+    }
+
     return this.prisma.address.create({ data: { ...data, ownerId, zoneId } });
   }
 
@@ -45,6 +51,10 @@ export class AddressesService {
       const lat = data.latitude ?? address.latitude;
       const lng = data.longitude ?? address.longitude;
       zoneId = await this.resolveZoneId(lat, lng);
+    }
+
+    if (data.isDefault) {
+      await this.prisma.address.updateMany({ where: { ownerId, isDefault: true }, data: { isDefault: false } });
     }
 
     return this.prisma.address.update({ where: { id }, data: { ...data, zoneId } });
@@ -61,5 +71,37 @@ export class AddressesService {
     }
 
     await this.prisma.address.delete({ where: { id } });
+  }
+
+  /**
+   * Powers the customer app's home screen availability gate. Respects the
+   * admin-controlled geofencing toggle — when disabled, always reports
+   * available.
+   */
+  async checkServiceAvailability(ownerId: string) {
+    const geofencingEnabled = await isGeofencingEnabled(this.prisma);
+    if (!geofencingEnabled) {
+      return { available: true, geofencingEnabled: false, address: null };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const defaultAddress: any =
+      (await this.prisma.address.findFirst({ where: { ownerId, isDefault: true }, include: { zone: true } })) ??
+      (await this.prisma.address.findFirst({ where: { ownerId }, orderBy: { createdAt: "desc" }, include: { zone: true } }));
+
+    if (!defaultAddress) {
+      return { available: null, geofencingEnabled: true, address: null };
+    }
+
+    return {
+      available: defaultAddress.zoneId !== null,
+      geofencingEnabled: true,
+      address: {
+        id: defaultAddress.id,
+        label: defaultAddress.label,
+        zoneId: defaultAddress.zoneId,
+        zoneName: defaultAddress.zone?.name ?? null,
+      },
+    };
   }
 }

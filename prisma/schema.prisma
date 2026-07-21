@@ -83,6 +83,7 @@ model Address {
   notes        String?
   zoneId       String?      // resolved via ST_Contains against Zone.boundary at save time
   zone         Zone?        @relation(fields: [zoneId], references: [id])
+  isDefault    Boolean      @default(false)
   createdAt    DateTime     @default(now())
 
   orders       Order[]
@@ -522,6 +523,16 @@ model StripeWebhookEvent {
   id          String   @id // Stripe's own event id, e.g. "evt_..."
   type        String
   processedAt DateTime @default(now())
+}
+
+// Generic admin-controlled runtime settings — starts with the geofencing
+// enforcement toggle (useful to disable during testing without needing
+// every test address to fall inside a real zone), extensible for future
+// flags without needing a new table each time.
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 // One Shipment per (vehicle x item variation) pair within an Order — a
