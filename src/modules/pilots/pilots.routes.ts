@@ -1,12 +1,22 @@
 import type { FastifyInstance } from "fastify";
 import { PilotsService } from "./pilots.service.js";
-import { createPilotSchema, updatePilotSchema } from "./pilots.schemas.js";
-import { requirePermission } from "../auth/rbac.middleware.js";
+import { createPilotSchema, updatePilotSchema, updateMyPilotPreferencesSchema } from "./pilots.schemas.js";
+import { requirePermission, requireActor } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../lib/permissions.js";
 import { BadRequestError } from "../../lib/errors.js";
 
 export async function pilotsRoutes(app: FastifyInstance) {
   const pilotsService = new PilotsService(app);
+
+  app.get("/me", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+    return reply.send(await pilotsService.getMyProfile(request.user.sub));
+  });
+
+  app.patch("/me", { preHandler: requireActor("PILOT") }, async (request, reply) => {
+    const parsed = updateMyPilotPreferencesSchema.safeParse(request.body);
+    if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
+    return reply.send(await pilotsService.updateMyPreferences(request.user.sub, parsed.data));
+  });
 
   app.get("/", { preHandler: requirePermission(PERMISSIONS.PILOTS_READ) }, async (_request, reply) => {
     return reply.send(await pilotsService.listPilots());

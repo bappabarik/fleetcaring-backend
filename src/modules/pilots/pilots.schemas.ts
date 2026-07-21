@@ -9,6 +9,9 @@ export const createPilotSchema = z.object({
   email: z.string().email(),
   phoneNumber: phoneNumberSchema,
   verticalId: z.string().uuid().optional(),
+  // Optional: if provided, the pilot can log in with email+password
+  // immediately; otherwise they're limited to phone+OTP until a password
+  // is set later (e.g. via a "set password" flow — not built yet).
   password: z.string().min(8).optional(),
 });
 
@@ -17,5 +20,11 @@ export const updatePilotSchema = z.object({
   verticalId: z.string().uuid().nullable().optional(),
 });
 
+export const updateMyPilotPreferencesSchema = z.object({
+  preferredNavApp: z.enum(["google_maps", "waze", "2gis"]).optional(),
+  language: z.enum(["en", "ar"]).optional(),
+});
+
 export type CreatePilotBody = z.infer<typeof createPilotSchema>;
 export type UpdatePilotBody = z.infer<typeof updatePilotSchema>;
+export type UpdateMyPilotPreferencesBody = z.infer<typeof updateMyPilotPreferencesSchema>;

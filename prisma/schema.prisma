@@ -99,17 +99,19 @@ enum PilotStatus {
 }
 
 model Pilot {
-  id           String      @id @default(uuid())
-  code         String      @unique // "TXMPilot2413"
-  firstName    String
-  lastName     String
-  email        String      @unique
-  phoneNumber  String      @unique
-  passwordHash String?     // set only if the pilot uses email+password login
-  verticalId   String?
-  vertical     Vertical?   @relation(fields: [verticalId], references: [id])
-  status       PilotStatus @default(ACTIVE)
-  createdAt    DateTime    @default(now())
+  id               String       @id @default(uuid())
+  code             String       @unique
+  firstName        String
+  lastName         String
+  email            String       @unique
+  phoneNumber      String       @unique
+  passwordHash     String?
+  verticalId       String?
+  vertical         Vertical?    @relation(fields: [verticalId], references: [id])
+  status           PilotStatus  @default(ACTIVE)
+  preferredNavApp  String       @default("google_maps") // "google_maps" | "waze" | "2gis"
+  language         String       @default("en") // "en" | "ar"
+  createdAt        DateTime     @default(now())
 
   shifts        Shift[]
   refreshTokens RefreshToken[]
