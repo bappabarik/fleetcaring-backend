@@ -54,18 +54,19 @@ export class AuthService {
     await sendOtp(phoneNumber);
   }
 
-  async verifyCustomerOtp(phoneNumber: string, code: string): Promise<AuthTokenPair> {
+  async verifyCustomerOtp(phoneNumber: string, code: string): Promise<AuthTokenPair & { profileComplete: boolean }> {
     const isValid = await checkOtp(phoneNumber, code);
     if (!isValid) throw new UnauthorizedError("Invalid or expired code");
 
-    // First-time login creates the customer record; subsequent logins reuse it.
     const user = await this.prisma.user.upsert({
       where: { phoneNumber },
       update: {},
       create: { phoneNumber },
     });
 
-    return this.issueTokenPair({ sub: user.id, actorType: "CUSTOMER" }, "CUSTOMER", user.id);
+    const tokens = await this.issueTokenPair({ sub: user.id, actorType: "CUSTOMER" }, "CUSTOMER", user.id);
+
+    return { ...tokens, profileComplete: !!(user.name && user.email) };
   }
 
   // ---------- Pilot: phone + OTP, or email + password ----------
