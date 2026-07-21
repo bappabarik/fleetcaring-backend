@@ -25,6 +25,14 @@ export const updateMyPilotPreferencesSchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
+export const listPilotsQuerySchema = z.object({
+  search: z.string().optional(), // matches name, code, email, or phone
+  status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED"]).optional(),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  cursor: z.string().uuid().optional(),
+});
+
 export type CreatePilotBody = z.infer<typeof createPilotSchema>;
 export type UpdatePilotBody = z.infer<typeof updatePilotSchema>;
 export type UpdateMyPilotPreferencesBody = z.infer<typeof updateMyPilotPreferencesSchema>;
+export type ListPilotsQuery = z.infer<typeof listPilotsQuerySchema>;

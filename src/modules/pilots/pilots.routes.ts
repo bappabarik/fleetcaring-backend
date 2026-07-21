@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { PilotsService } from "./pilots.service.js";
-import { createPilotSchema, updatePilotSchema, updateMyPilotPreferencesSchema } from "./pilots.schemas.js";
+import {
+  createPilotSchema,
+  updatePilotSchema,
+  updateMyPilotPreferencesSchema,
+  listPilotsQuerySchema,
+} from "./pilots.schemas.js";
 import { requirePermission, requireActor } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../lib/permissions.js";
 import { BadRequestError } from "../../lib/errors.js";
@@ -18,8 +23,10 @@ export async function pilotsRoutes(app: FastifyInstance) {
     return reply.send(await pilotsService.updateMyPreferences(request.user.sub, parsed.data));
   });
 
-  app.get("/", { preHandler: requirePermission(PERMISSIONS.PILOTS_READ) }, async (_request, reply) => {
-    return reply.send(await pilotsService.listPilots());
+  app.get("/", { preHandler: requirePermission(PERMISSIONS.PILOTS_READ) }, async (request, reply) => {
+    const parsed = listPilotsQuerySchema.safeParse(request.query);
+    if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
+    return reply.send(await pilotsService.listPilots(parsed.data));
   });
 
   app.get("/:id", { preHandler: requirePermission(PERMISSIONS.PILOTS_READ) }, async (request, reply) => {

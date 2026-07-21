@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { OrdersService } from "./orders.service.js";
 import { ShipmentsService } from "../shipments/shipments.service.js";
-import { cancelOrderSchema, createOrderSchema } from "./orders.schemas.js";
+import { IssuesService } from "../issues/issues.service.js";
+import { createOrderSchema, cancelOrderSchema, listOrdersQuerySchema } from "./orders.schemas.js";
 import { raiseIssueSchema } from "../shipments/shipments.schemas.js";
 import { requireActor } from "../auth/rbac.middleware.js";
 import { BadRequestError } from "../../lib/errors.js";
 import { idempotent } from "../../lib/idempotency.js";
-import { IssuesService } from "../issues/issues.service.js";
 
 export async function ordersRoutes(app: FastifyInstance) {
   const ordersService = new OrdersService(app);
@@ -23,9 +23,14 @@ export async function ordersRoutes(app: FastifyInstance) {
 
   app.get("/", { preHandler: requireActor("CUSTOMER", "ADMIN") }, async (request, reply) => {
     if (request.user.actorType === "ADMIN") {
-      return reply.send(await ordersService.listAllOrders());
+      const parsed = listOrdersQuerySchema.safeParse(request.query);
+      if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
+      return reply.send(await ordersService.listAllOrders(parsed.data));
     }
-    return reply.send(await ordersService.listOrdersForUser(request.user.sub));
+
+    const query = request.query as { limit?: string; cursor?: string };
+    const limit = query.limit ? Number(query.limit) : 20;
+    return reply.send(await ordersService.listOrdersForUser(request.user.sub, limit, query.cursor));
   });
 
   app.get("/:id", { preHandler: requireActor("CUSTOMER", "PILOT", "ADMIN") }, async (request, reply) => {
@@ -41,6 +46,9 @@ export async function ordersRoutes(app: FastifyInstance) {
     return reply.send(await issuesService.listIssuesForOrder(id, requestingUserId, requestingPilotId));
   });
 
+  // Both the order's own customer and an admin (support, cancelling on a
+  // customer's behalf) can cancel — idempotent so a double-tap or retry
+  // never attempts a second refund against an already-cancelled order.
   app.post(
     "/:id/cancel",
     { preHandler: [requireActor("CUSTOMER", "ADMIN"), idempotent()] },

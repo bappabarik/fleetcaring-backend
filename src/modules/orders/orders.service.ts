@@ -5,7 +5,7 @@ import { TimeslotsService } from "../timeslots/timeslots.service.js";
 import { CatalogService } from "../catalog/catalog.service.js";
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { isGeofencingEnabled } from "../../lib/settings.js";
-import type { CreateOrderBody } from "./orders.schemas.js";
+import type { CreateOrderBody, ListOrdersQuery } from "./orders.schemas.js";
 import { PaymentsService } from "../payments/payments.service.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
 
@@ -181,19 +181,68 @@ export class OrdersService {
     return order;
   }
 
-  async listOrdersForUser(userId: string) {
-    return this.prisma.order.findMany({
+  async listOrdersForUser(userId: string, limit = 20, cursor?: string) {
+    const orders = await this.prisma.order.findMany({
       where: { userId },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: { shipments: true },
       orderBy: { createdAt: "desc" },
     });
+
+    const hasMore = orders.length > limit;
+    const page = hasMore ? orders.slice(0, -1) : orders;
+
+    return {
+      items: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
   }
 
-  async listAllOrders() {
-    return this.prisma.order.findMany({
+  async listAllOrders(filters: ListOrdersQuery) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (filters.status === "active") {
+      where.completedAt = null;
+      where.cancelledAt = null;
+    } else if (filters.status === "completed") {
+      where.completedAt = { not: null };
+    } else if (filters.status === "cancelled") {
+      where.cancelledAt = { not: null };
+    }
+
+    if (filters.zoneId) where.address = { zoneId: filters.zoneId };
+
+    if (filters.dateFrom || filters.dateTo) {
+      where.createdAt = {};
+      if (filters.dateFrom) where.createdAt.gte = filters.dateFrom;
+      if (filters.dateTo) where.createdAt.lte = filters.dateTo;
+    }
+
+    if (filters.search) {
+      where.OR = [
+        { orderNumber: { contains: filters.search, mode: "insensitive" } },
+        { user: { name: { contains: filters.search, mode: "insensitive" } } },
+        { user: { phoneNumber: { contains: filters.search } } },
+      ];
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      take: filters.limit + 1,
+      ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
       include: { shipments: true, user: true },
       orderBy: { createdAt: "desc" },
     });
+
+    const hasMore = orders.length > filters.limit;
+    const page = hasMore ? orders.slice(0, -1) : orders;
+
+    return {
+      items: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
   }
 
   // ---------- Order-level pilot actions (bulk across all shipments) ----------
@@ -257,6 +306,20 @@ export class OrdersService {
     return updated;
   }
 
+  /**
+   * Cancellable only while every shipment is still CREATED or ASSIGNED —
+   * once a pilot is en route (ON_THE_WAY) or further, the trip is already
+   * committed and this simple flow no longer applies (would need ops
+   * intervention, out of scope here). Either the order's own customer or
+   * an admin (support cancelling on a customer's behalf) can call this.
+   *
+   * Refund ordering matters: if a payment was already captured, the
+   * Stripe refund call happens FIRST, before touching our own database.
+   * If the refund fails, nothing in our DB has changed yet — no
+   * inconsistent "cancelled but never refunded" state is possible. Only
+   * after a successful (or unnecessary) refund does the actual
+   * cancellation transaction run.
+   */
   async cancelOrder(orderId: string, actorId: string, actorType: "CUSTOMER" | "ADMIN", reason?: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },

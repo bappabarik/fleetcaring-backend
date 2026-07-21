@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { NotFoundError } from "../../lib/errors.js";
-import type { CreateAssetBody, UpdateAssetBody } from "./assets.schemas.js";
+import type { CreateAssetBody, UpdateAssetBody, ListAssetsQuery } from "./assets.schemas.js";
 
 export class AssetsService {
   constructor(private app: FastifyInstance) {}
@@ -9,8 +9,34 @@ export class AssetsService {
     return this.app.prisma;
   }
 
-  async listAssets() {
-    return this.prisma.asset.findMany({ orderBy: { name: "asc" } });
+  async listAssets(filters: ListAssetsQuery) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (filters.isActive === "true") where.isActive = true;
+    if (filters.isActive === "false") where.isActive = false;
+    if (filters.search) {
+      where.OR = [
+        { plateCode: { contains: filters.search, mode: "insensitive" } },
+        { name: { contains: filters.search, mode: "insensitive" } },
+      ];
+    }
+
+    const assets = await this.prisma.asset.findMany({
+      where,
+      take: filters.limit + 1,
+      ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
+      orderBy: { name: "asc" },
+    });
+
+    const hasMore = assets.length > filters.limit;
+    const page = hasMore ? assets.slice(0, -1) : assets;
+
+    return {
+      items: page,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      nextCursor: hasMore ? (page[page.length - 1] as any).id : null,
+    };
   }
 
   async createAsset(data: CreateAssetBody) {

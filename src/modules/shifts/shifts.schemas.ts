@@ -27,5 +27,16 @@ export const startBreakSchema = z.object({
   durationAllowedMins: z.number().int().positive().max(240).optional(),
 });
 
+export const listShiftsQuerySchema = z.object({
+  pilotId: z.string().uuid().optional(),
+  zoneId: z.string().uuid().optional(),
+  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+  dateFrom: z.coerce.date().optional(), // filters on startTime
+  dateTo: z.coerce.date().optional(),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  cursor: z.string().uuid().optional(),
+});
+
 export type CreateShiftBody = z.infer<typeof createShiftSchema>;
 export type StartBreakBody = z.infer<typeof startBreakSchema>;
+export type ListShiftsQuery = z.infer<typeof listShiftsQuerySchema>;

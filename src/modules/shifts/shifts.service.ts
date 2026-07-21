@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
-import type { CreateShiftBody, StartBreakBody } from "./shifts.schemas.js";
+import { SAFE_PILOT_SELECT } from "../../lib/safeSelects.js";
+import type { CreateShiftBody, StartBreakBody, ListShiftsQuery } from "./shifts.schemas.js";
 
 const DEFAULT_BREAK_MINUTES = 60;
 
@@ -11,6 +12,8 @@ export class ShiftsService {
     return this.app.prisma;
   }
 
+  // ---------- Admin: scheduling ----------
+
   async createShift(data: CreateShiftBody) {
     const pilot = await this.prisma.pilot.findUnique({ where: { id: data.pilotId } });
     if (!pilot) throw new NotFoundError("Pilot not found");
@@ -19,6 +22,8 @@ export class ShiftsService {
     const zone = await this.prisma.zone.findUnique({ where: { id: data.zoneId } });
     if (!zone) throw new NotFoundError("Zone not found");
 
+    // Prevent double-booking: neither this pilot nor this asset can have
+    // another active/scheduled shift whose time range overlaps this one.
     const overlappingPilotShift = await this.prisma.shift.findFirst({
       where: {
         pilotId: data.pilotId,
@@ -44,22 +49,46 @@ export class ShiftsService {
     return shift;
   }
 
-  async listShifts(pilotId?: string) {
-    return this.prisma.shift.findMany({
-      where: pilotId ? { pilotId } : undefined,
-      include: { pilot: true, asset: true, zone: true },
+  async listShifts(filters: ListShiftsQuery) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (filters.pilotId) where.pilotId = filters.pilotId;
+    if (filters.zoneId) where.zoneId = filters.zoneId;
+    if (filters.status) where.status = filters.status;
+    if (filters.dateFrom || filters.dateTo) {
+      where.startTime = {};
+      if (filters.dateFrom) where.startTime.gte = filters.dateFrom;
+      if (filters.dateTo) where.startTime.lte = filters.dateTo;
+    }
+
+    const shifts = await this.prisma.shift.findMany({
+      where,
+      take: filters.limit + 1,
+      ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
+      include: { pilot: { select: SAFE_PILOT_SELECT }, asset: true, zone: true },
       orderBy: { startTime: "desc" },
     });
+
+    const hasMore = shifts.length > filters.limit;
+    const page = hasMore ? shifts.slice(0, -1) : shifts;
+
+    return {
+      items: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
   }
 
   async getShiftById(id: string) {
     const shift = await this.prisma.shift.findUnique({
       where: { id },
-      include: { pilot: true, asset: true, zone: true, breaks: true, events: true },
+      include: { pilot: { select: SAFE_PILOT_SELECT }, asset: true, zone: true, breaks: true, events: true },
     });
     if (!shift) throw new NotFoundError("Shift not found");
     return shift;
   }
+
+  // ---------- Pilot: start/end shift ----------
 
   async startShift(shiftId: string, actorId: string) {
     const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
@@ -96,6 +125,8 @@ export class ShiftsService {
     return this.getShiftById(shiftId);
   }
 
+  // ---------- Breaks ----------
+
   async startBreak(shiftId: string, actorId: string, data: StartBreakBody) {
     const shift = await this.prisma.shift.findUnique({ where: { id: shiftId } });
     if (!shift) throw new NotFoundError("Shift not found");
@@ -128,6 +159,11 @@ export class ShiftsService {
     return this.prisma.pilotBreak.update({ where: { id: breakId }, data: { endedAt: new Date() } });
   }
 
+  /** Called by the break-expiry BullMQ worker on a short interval — closes
+   * out any break whose countdown ran out without the pilot manually
+   * ending it, matching the pilot app's "Break remaining 00:00" timer
+   * hitting zero. Sets endedAt to when it SHOULD have ended (start +
+   * allowance), not "now", so the recorded duration is accurate. */
   async expireOverdueBreaks(): Promise<{ expired: number }> {
     const activeBreaks = await this.prisma.pilotBreak.findMany({ where: { endedAt: null } });
     const now = Date.now();
@@ -150,6 +186,12 @@ export class ShiftsService {
     return { expired: expiredCount };
   }
 
+  // ---------- Pilot-facing dashboard summary ----------
+
+  /** Matches the pilot app's home screen states: "No shift" (with next
+   * scheduled shift if any), "Shift starts in X" (scheduled, not started),
+   * "On duty" (in progress, no active break), or "On break" (in progress,
+   * with an active break and its remaining minutes). */
   async getPilotDashboard(pilotId: string) {
     const now = new Date();
 

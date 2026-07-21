@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { AssetsService } from "./assets.service.js";
-import { createAssetSchema, updateAssetSchema } from "./assets.schemas.js";
+import { createAssetSchema, updateAssetSchema, listAssetsQuerySchema } from "./assets.schemas.js";
 import { requirePermission } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../lib/permissions.js";
 import { BadRequestError } from "../../lib/errors.js";
@@ -8,8 +8,10 @@ import { BadRequestError } from "../../lib/errors.js";
 export async function assetsRoutes(app: FastifyInstance) {
   const assetsService = new AssetsService(app);
 
-  app.get("/", { preHandler: requirePermission(PERMISSIONS.ASSETS_READ) }, async (_request, reply) => {
-    return reply.send(await assetsService.listAssets());
+  app.get("/", { preHandler: requirePermission(PERMISSIONS.ASSETS_READ) }, async (request, reply) => {
+    const parsed = listAssetsQuerySchema.safeParse(request.query);
+    if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
+    return reply.send(await assetsService.listAssets(parsed.data));
   });
 
   app.post("/", { preHandler: requirePermission(PERMISSIONS.ASSETS_WRITE) }, async (request, reply) => {

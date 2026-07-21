@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ShiftsService } from "./shifts.service.js";
-import { createShiftSchema, startBreakSchema } from "./shifts.schemas.js";
+import { createShiftSchema, startBreakSchema, listShiftsQuerySchema } from "./shifts.schemas.js";
 import { requireActor, requirePermission } from "../auth/rbac.middleware.js";
 import { PERMISSIONS } from "../../lib/permissions.js";
 import { BadRequestError, ForbiddenError } from "../../lib/errors.js";
@@ -10,8 +10,9 @@ export async function shiftsRoutes(app: FastifyInstance) {
   const shiftsService = new ShiftsService(app);
 
   app.get("/", { preHandler: requirePermission(PERMISSIONS.SHIFTS_READ) }, async (request, reply) => {
-    const { pilotId } = request.query as { pilotId?: string };
-    return reply.send(await shiftsService.listShifts(pilotId));
+    const parsed = listShiftsQuerySchema.safeParse(request.query);
+    if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
+    return reply.send(await shiftsService.listShifts(parsed.data));
   });
 
   app.post("/", { preHandler: requirePermission(PERMISSIONS.SHIFTS_WRITE) }, async (request, reply) => {
@@ -34,7 +35,14 @@ export async function shiftsRoutes(app: FastifyInstance) {
   });
 
   app.get("/me/list", { preHandler: requireActor("PILOT") }, async (request, reply) => {
-    return reply.send(await shiftsService.listShifts(request.user.sub));
+    const query = request.query as { limit?: string; cursor?: string };
+    return reply.send(
+      await shiftsService.listShifts({
+        pilotId: request.user.sub,
+        limit: query.limit ? Number(query.limit) : 20,
+        cursor: query.cursor,
+      })
+    );
   });
 
   app.post("/:id/start", { preHandler: [requireActor("PILOT"), idempotent()] }, async (request, reply) => {

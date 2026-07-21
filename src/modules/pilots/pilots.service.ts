@@ -1,26 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { NotFoundError, ConflictError } from "../../lib/errors.js";
 import { hashPassword } from "../../lib/passwords.js";
-import type { CreatePilotBody, UpdatePilotBody, UpdateMyPilotPreferencesBody } from "./pilots.schemas.js";
-
-/**
- * Explicit allow-list, never an implicit "return everything" — this is
- * what actually fixes the passwordHash leak. Every method below returns
- * through this select, including the ones that existed before this fix.
- */
-const SAFE_PILOT_SELECT = {
-  id: true,
-  code: true,
-  firstName: true,
-  lastName: true,
-  email: true,
-  phoneNumber: true,
-  verticalId: true,
-  status: true,
-  preferredNavApp: true,
-  language: true,
-  createdAt: true,
-} as const;
+import { SAFE_PILOT_SELECT } from "../../lib/safeSelects.js";
+import type {
+  CreatePilotBody,
+  UpdatePilotBody,
+  UpdateMyPilotPreferencesBody,
+  ListPilotsQuery,
+} from "./pilots.schemas.js";
 
 export class PilotsService {
   constructor(private app: FastifyInstance) {}
@@ -29,8 +16,36 @@ export class PilotsService {
     return this.app.prisma;
   }
 
-  async listPilots() {
-    return this.prisma.pilot.findMany({ orderBy: { createdAt: "desc" }, select: SAFE_PILOT_SELECT });
+  async listPilots(filters: ListPilotsQuery) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (filters.status) where.status = filters.status;
+    if (filters.search) {
+      where.OR = [
+        { firstName: { contains: filters.search, mode: "insensitive" } },
+        { lastName: { contains: filters.search, mode: "insensitive" } },
+        { code: { contains: filters.search, mode: "insensitive" } },
+        { email: { contains: filters.search, mode: "insensitive" } },
+        { phoneNumber: { contains: filters.search } },
+      ];
+    }
+
+    const pilots = await this.prisma.pilot.findMany({
+      where,
+      take: filters.limit + 1,
+      ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
+      orderBy: { createdAt: "desc" },
+      select: SAFE_PILOT_SELECT,
+    });
+
+    const hasMore = pilots.length > filters.limit;
+    const page = hasMore ? pilots.slice(0, -1) : pilots;
+
+    return {
+      items: page,
+      nextCursor: hasMore ? (page[page.length - 1] as { id: string }).id : null,
+    };
   }
 
   async getPilotById(id: string) {
@@ -77,12 +92,6 @@ export class PilotsService {
     return this.getPilotById(pilotId);
   }
 
-  /** Deliberately narrow scope — a pilot can set their own nav-app and
-   * language preference, but NOT their name/email/phone/code/status.
-   * Those are identity/HR-managed fields and stay admin-only
-   * (updatePilot above); letting a pilot self-edit their own phone number,
-   * for instance, would let them redirect their own OTP login to a
-   * different number without any oversight. */
   async updateMyPreferences(pilotId: string, data: UpdateMyPilotPreferencesBody) {
     const pilot = await this.prisma.pilot.findUnique({ where: { id: pilotId } });
     if (!pilot) throw new NotFoundError("Pilot not found");
