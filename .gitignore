@@ -4,4 +4,5 @@ dist/
 *.log
 .DS_Store
 bruno-payments-quickcheck/
+bruno-mytasks-quickcheck/
 test-realtime.mjs
