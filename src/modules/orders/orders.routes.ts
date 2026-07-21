@@ -6,10 +6,12 @@ import { raiseIssueSchema } from "../shipments/shipments.schemas.js";
 import { requireActor } from "../auth/rbac.middleware.js";
 import { BadRequestError } from "../../lib/errors.js";
 import { idempotent } from "../../lib/idempotency.js";
+import { IssuesService } from "../issues/issues.service.js";
 
 export async function ordersRoutes(app: FastifyInstance) {
   const ordersService = new OrdersService(app);
   const shipmentsService = new ShipmentsService(app);
+  const issuesService = new IssuesService(app);
 
   app.post("/", { preHandler: [requireActor("CUSTOMER"), idempotent()] }, async (request, reply) => {
     const parsed = createOrderSchema.safeParse(request.body);
@@ -30,6 +32,13 @@ export async function ordersRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const requestingUserId = request.user.actorType === "CUSTOMER" ? request.user.sub : undefined;
     return reply.send(await ordersService.getOrderById(id, requestingUserId));
+  });
+
+  app.get("/:id/issues", { preHandler: requireActor("CUSTOMER", "PILOT", "ADMIN") }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const requestingUserId = request.user.actorType === "CUSTOMER" ? request.user.sub : undefined;
+    const requestingPilotId = request.user.actorType === "PILOT" ? request.user.sub : undefined;
+    return reply.send(await issuesService.listIssuesForOrder(id, requestingUserId, requestingPilotId));
   });
 
   app.post(

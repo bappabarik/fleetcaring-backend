@@ -27,6 +27,8 @@ import { devicesRoutes } from "./modules/devices/devices.routes.js";
 import { vehiclesRoutes } from "./modules/vehicles/vehicles.routes.js";
 import { addressesRoutes } from "./modules/addresses/addresses.routes.js";
 import { settingsRoutes } from "./modules/settings/settings.routes.js";
+import { issuesRoutes } from "./modules/issues/issues.routes.js";
+
 
 
 
@@ -109,6 +111,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(vehiclesRoutes, { prefix: "/vehicles" });
   await app.register(addressesRoutes, { prefix: "/addresses" });
   await app.register(settingsRoutes, { prefix: "/settings" });
+  await app.register(issuesRoutes, { prefix: "/issues" });
   // ...more modules land here as they're built
 
   return app;

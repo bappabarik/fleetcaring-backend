@@ -160,6 +160,7 @@ model AdminUser {
   createdAt    DateTime  @default(now())
 
   refreshTokens RefreshToken[]
+  issuesResolved Issue[]
 }
 
 // ============================================================
@@ -644,6 +645,11 @@ model Issue {
   raisedById String
   raisedBy   Pilot       @relation(fields: [raisedById], references: [id])
   createdAt  DateTime    @default(now())
+
+  resolvedAt      DateTime?
+  resolutionNotes String?
+  resolvedById    String?
+  resolvedBy      AdminUser? @relation(fields: [resolvedById], references: [id])
 }
 
 // ============================================================
