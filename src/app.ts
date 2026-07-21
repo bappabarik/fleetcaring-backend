@@ -23,6 +23,9 @@ import realtimePlugin from "./plugins/realtime.js";
 import { realtimeRoutes } from "./modules/realtime/realtime.routes.js";
 import idempotencyPlugin from "./plugins/idempotency.js";
 import { uploadsRoutes } from "./modules/uploads/uploads.routes.js";
+import { devicesRoutes } from "./modules/devices/devices.routes.js";
+import { vehiclesRoutes } from "./modules/vehicles/vehicles.routes.js";
+import { addressesRoutes } from "./modules/addresses/addresses.routes.js";
 
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -100,6 +103,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(paymentsWebhookRoutes, { prefix: "/payments" });
   await app.register(realtimeRoutes, { prefix: "/realtime" });
   await app.register(uploadsRoutes, { prefix: "/uploads" });
+  await app.register(devicesRoutes, { prefix: "/devices" });
+  await app.register(vehiclesRoutes, { prefix: "/vehicles" });
+  await app.register(addressesRoutes, { prefix: "/addresses" });
   // ...more modules land here as they're built
 
   return app;
