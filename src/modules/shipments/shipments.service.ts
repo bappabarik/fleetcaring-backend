@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from "../../lib/errors.js";
+import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import type { AssignShipmentBody, CheckSubmissionBody, RaiseIssueBody } from "./shipments.schemas.js";
 import { Prisma } from "@prisma/client";
 
@@ -28,6 +29,7 @@ export class ShipmentsService {
     await this.prisma.shipmentStatusEvent.create({
       data: { shipmentId, status: "ASSIGNED", actorType: "admin", actorId },
     });
+    await notifyOrderUpdate(this.app, shipment.orderId, shipmentId, "ASSIGNED");
 
     return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
   }
@@ -56,6 +58,8 @@ export class ShipmentsService {
         data: { shipmentId, status: "IN_PROGRESS", actorType: "pilot", actorId },
       });
     });
+
+    await notifyOrderUpdate(this.app, shipment.orderId, shipmentId, "IN_PROGRESS");
 
     return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId }, include: { checks: true } });
   }
@@ -86,6 +90,7 @@ export class ShipmentsService {
     });
 
     await this.recomputeOrderResolution(shipment.orderId);
+    await notifyOrderUpdate(this.app, shipment.orderId, shipmentId, "COMPLETED");
 
     return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId }, include: { checks: true } });
   }
@@ -133,6 +138,7 @@ export class ShipmentsService {
 
     if (data.shipmentId) {
       await this.recomputeOrderResolution(orderId);
+      await notifyOrderUpdate(this.app, orderId, data.shipmentId, "ISSUE_RAISED");
     }
 
     return issue;

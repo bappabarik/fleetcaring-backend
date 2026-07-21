@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { BadRequestError, ForbiddenError, NotFoundError, ConflictError } from "../../lib/errors.js";
 import { TimeslotsService } from "../timeslots/timeslots.service.js";
 import { CatalogService } from "../catalog/catalog.service.js";
+import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import type { CreateOrderBody } from "./orders.schemas.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
 
@@ -228,10 +229,14 @@ export class OrdersService {
       throw new ConflictError("All items must be completed or have an issue raised before the order can be completed");
     }
 
-    return this.prisma.order.update({
+    const updated = await this.prisma.order.update({
       where: { id: orderId },
       data: { allItemsResolved: true, completedAt: new Date() },
     });
+
+    await notifyOrderUpdate(this.app, orderId, null, "ORDER_COMPLETED");
+
+    return updated;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -242,5 +247,9 @@ export class OrdersService {
         data: shipments.map((s) => ({ shipmentId: s.id, status, actorType: "pilot", actorId })),
       }),
     ]);
+
+    for (const s of shipments) {
+      await notifyOrderUpdate(this.app, s.orderId, s.id, status);
+    }
   }
 }

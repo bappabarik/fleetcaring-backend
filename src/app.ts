@@ -19,6 +19,8 @@ import { pilotsRoutes } from "./modules/pilots/pilots.routes.js";
 import { shiftsRoutes } from "./modules/shifts/shifts.routes.js";
 import { paymentsRoutes } from "./modules/payments/payments.routes.js";
 import { paymentsWebhookRoutes } from "./modules/payments/payments.webhook.routes.js";
+import realtimePlugin from "./plugins/realtime.js";
+import { realtimeRoutes } from "./modules/realtime/realtime.routes.js";
 
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -63,6 +65,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // --- Infra plugins ---
   await app.register(prismaPlugin);
   await app.register(redisPlugin);
+  await app.register(realtimePlugin);
 
   // --- Health check ---
   app.get("/health", async () => {
@@ -92,6 +95,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(shiftsRoutes, { prefix: "/shifts" });
   await app.register(paymentsRoutes, { prefix: "/payments" });
   await app.register(paymentsWebhookRoutes, { prefix: "/payments" });
+  await app.register(realtimeRoutes, { prefix: "/realtime" });
   // ...more modules land here as they're built
 
   return app;
