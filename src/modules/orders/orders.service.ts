@@ -194,6 +194,7 @@ export class OrdersService {
         shipments: { include: { checks: true, issues: true, statusHistory: true, addOns: true } },
         notes: true,
         payment: true,
+        promoCode: { select: { id: true, code: true, description: true } },
       },
     });
     if (!order) throw new NotFoundError("Order not found");
@@ -206,7 +207,7 @@ export class OrdersService {
       where: { userId },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      include: { shipments: true },
+      include: { shipments: true, promoCode: { select: { id: true, code: true, description: true } } },
       orderBy: { createdAt: "desc" },
     });
 
@@ -252,7 +253,7 @@ export class OrdersService {
       where,
       take: filters.limit + 1,
       ...(filters.cursor ? { cursor: { id: filters.cursor }, skip: 1 } : {}),
-      include: { shipments: true, user: true },
+      include: { shipments: true, user: true, promoCode: { select: { id: true, code: true, description: true } } },
       orderBy: { createdAt: "desc" },
     });
 

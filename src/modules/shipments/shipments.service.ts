@@ -3,7 +3,7 @@ import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from ".
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { startOfDay, addDays } from "../../lib/dateUtils.js";
 import type { AssignShipmentBody, CheckSubmissionBody, RaiseIssueBody } from "./shipments.schemas.js";
-import { Prisma } from "@prisma/client";
+import { Prisma, ShipmentStatus } from "@prisma/client";
 
 const MIN_CHECK_PHOTOS = 2;
 
@@ -20,8 +20,53 @@ export class ShipmentsService {
   }
 
   async assign(shipmentId: string, data: AssignShipmentBody, actorId?: string) {
-    const shipment = await this.prisma.shipment.findUnique({ where: { id: shipmentId } });
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      include: { order: { include: { timeslot: true } } },
+    });
     if (!shipment) throw new NotFoundError("Shipment not found");
+
+    const pilot = await this.prisma.pilot.findUnique({ where: { id: data.pilotId } });
+    if (!pilot) throw new NotFoundError("Pilot not found");
+    if (pilot.status !== "ACTIVE") {
+      throw new ConflictError(`This pilot is currently ${pilot.status.toLowerCase()} and cannot be assigned`);
+    }
+
+    const asset = await this.prisma.asset.findUnique({ where: { id: data.assetId } });
+    if (!asset) throw new NotFoundError("Asset not found");
+    if (!asset.isActive) throw new ConflictError("This asset is currently inactive and cannot be assigned");
+
+    // Neither a pilot nor a physical asset can be dispatched to two places
+    // at once — check for any OTHER still-active shipment (for either
+    // this pilot or this asset) whose order's timeslot overlaps this
+    // shipment's own timeslot. There was previously no FK constraint and
+    // no check of any kind here at all.
+    const activeStatuses: ShipmentStatus[] = ["ASSIGNED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS"];
+    const { startTime, endTime } = shipment.order.timeslot;
+
+    const conflictingPilotShipment = await this.prisma.shipment.findFirst({
+      where: {
+        id: { not: shipmentId },
+        pilotId: data.pilotId,
+        status: { in: activeStatuses },
+        order: { timeslot: { startTime: { lt: endTime }, endTime: { gt: startTime } } },
+      },
+    });
+    if (conflictingPilotShipment) {
+      throw new ConflictError("This pilot is already assigned to another shipment during this time slot");
+    }
+
+    const conflictingAssetShipment = await this.prisma.shipment.findFirst({
+      where: {
+        id: { not: shipmentId },
+        assetId: data.assetId,
+        status: { in: activeStatuses },
+        order: { timeslot: { startTime: { lt: endTime }, endTime: { gt: startTime } } },
+      },
+    });
+    if (conflictingAssetShipment) {
+      throw new ConflictError("This asset is already assigned to another shipment during this time slot");
+    }
 
     await this.prisma.shipment.update({
       where: { id: shipmentId },

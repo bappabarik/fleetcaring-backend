@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const assignShipmentSchema = z.object({
-  pilotId: z.string().uuid().optional(),
-  assetId: z.string().uuid().optional(),
+  pilotId: z.string().uuid(),
+  assetId: z.string().uuid(),
 });
 
 export const checkSubmissionSchema = z.object({
