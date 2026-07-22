@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const createVerticalSchema = z.object({ name: z.string().min(1) });
+
 export const createBrandSchema = z.object({ name: z.string().min(1) });
 
 export const createOpItemSchema = z.object({
@@ -38,6 +39,9 @@ export const createPriceRuleSchema = z.object({
   zoneId: z.string().uuid().optional(),
   multiplier: z.number().positive().default(1),
   fixedAdjustment: z.number().optional(),
+  // UTC day-of-week: 0=Sun ... 6=Sat. Empty (default) = applies every day.
+  // e.g. [0, 6] for an ongoing weekend surcharge.
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).default([]),
   validFrom: z.coerce.date().optional(),
   validTo: z.coerce.date().optional(),
 });

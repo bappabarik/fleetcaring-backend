@@ -266,6 +266,7 @@ model PriceRule {
   fixedAdjustment Decimal?      @db.Decimal(10, 2)
   validFrom       DateTime?
   validTo         DateTime?
+  daysOfWeek      Int[]         @default([])
   createdAt       DateTime      @default(now())
 }
 
