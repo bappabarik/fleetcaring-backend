@@ -6,6 +6,7 @@ import type {
   CreateVariationBody,
   UpdateVariationBody,
   CreatePriceRuleBody,
+  UpdatePriceRuleBody,
 } from "./catalog.schemas.js";
 
 export class CatalogService {
@@ -79,6 +80,35 @@ export class CatalogService {
     return this.prisma.priceRule.create({ data: { itemVariationId, ...data } });
   }
 
+  /** So the admin panel can actually SEE what pricing rules exist for a
+   * service — without this, a rule created once is invisible forever. */
+  async listPriceRules(itemVariationId: string) {
+    const variation = await this.prisma.itemVariation.findUnique({ where: { id: itemVariationId } });
+    if (!variation) throw new NotFoundError("Variation not found");
+
+    return this.prisma.priceRule.findMany({
+      where: { itemVariationId },
+      include: { zone: true },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /** Lets an admin adjust a rule (change the multiplier as demand shifts,
+   * extend/shorten its validity window, retarget its zone or days) or
+   * simply flip isActive off — e.g. "turn off the weekend surcharge for
+   * now" without losing the rule's configuration for later. */
+  async updatePriceRule(id: string, data: UpdatePriceRuleBody) {
+    const rule = await this.prisma.priceRule.findUnique({ where: { id } });
+    if (!rule) throw new NotFoundError("Price rule not found");
+    return this.prisma.priceRule.update({ where: { id }, data });
+  }
+
+  async deletePriceRule(id: string): Promise<void> {
+    const rule = await this.prisma.priceRule.findUnique({ where: { id } });
+    if (!rule) throw new NotFoundError("Price rule not found");
+    await this.prisma.priceRule.delete({ where: { id } });
+  }
+
   /**
    * Resolves the effective price for a variation in a given zone at a given
    * moment, layering the best-matching PriceRule on top of the base price.
@@ -102,6 +132,7 @@ export class CatalogService {
     const candidateRules = await this.prisma.priceRule.findMany({
       where: {
         itemVariationId,
+        isActive: true,
         OR: [{ zoneId }, { zoneId: null }],
         AND: [
           { OR: [{ validFrom: null }, { validFrom: { lte: at } }] },

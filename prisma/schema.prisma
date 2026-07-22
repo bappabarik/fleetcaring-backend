@@ -267,6 +267,7 @@ model PriceRule {
   validFrom       DateTime?
   validTo         DateTime?
   daysOfWeek      Int[]         @default([])
+  isActive        Boolean       @default(true)
   createdAt       DateTime      @default(now())
 }
 

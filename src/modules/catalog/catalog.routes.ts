@@ -8,6 +8,7 @@ import {
   createVariationSchema,
   updateVariationSchema,
   createPriceRuleSchema,
+  updatePriceRuleSchema,
   resolvePriceQuerySchema,
 } from "./catalog.schemas.js";
 import { requirePermission } from "../auth/rbac.middleware.js";
@@ -16,6 +17,9 @@ import { BadRequestError } from "../../lib/errors.js";
 
 export async function catalogRoutes(app: FastifyInstance) {
   const catalogService = new CatalogService(app);
+
+  // ---------- Public browse — no login required, matches the app's
+  // guest-first discovery philosophy ----------
 
   app.get("/verticals", async (_request, reply) => {
     return reply.send(await catalogService.listVerticals());
@@ -29,10 +33,13 @@ export async function catalogRoutes(app: FastifyInstance) {
   app.get("/variations/:id/price", async (request, reply) => {
     const parsed = resolvePriceQuerySchema.safeParse(request.query);
     if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
+
     const { id } = request.params as { id: string };
-    const priceAED = await catalogService.resolveEffectivePrice(id, parsed.data.zoneId ?? null);
+    const priceAED = await catalogService.resolveEffectivePrice(id, parsed.data.zoneId ?? null, parsed.data.at);
     return reply.send({ priceAED });
   });
+
+  // ---------- Admin writes ----------
 
   app.post("/verticals", { preHandler: requirePermission(PERMISSIONS.CATALOG_WRITE) }, async (request, reply) => {
     const parsed = createVerticalSchema.safeParse(request.body);
@@ -93,6 +100,36 @@ export async function catalogRoutes(app: FastifyInstance) {
       if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
       const { id } = request.params as { id: string };
       return reply.status(201).send(await catalogService.createPriceRule(id, parsed.data));
+    }
+  );
+
+  app.get(
+    "/variations/:id/price-rules",
+    { preHandler: requirePermission(PERMISSIONS.PRICING_READ) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      return reply.send(await catalogService.listPriceRules(id));
+    }
+  );
+
+  app.patch(
+    "/price-rules/:id",
+    { preHandler: requirePermission(PERMISSIONS.PRICING_WRITE) },
+    async (request, reply) => {
+      const parsed = updatePriceRuleSchema.safeParse(request.body);
+      if (!parsed.success) throw new BadRequestError("Invalid payload", parsed.error.flatten());
+      const { id } = request.params as { id: string };
+      return reply.send(await catalogService.updatePriceRule(id, parsed.data));
+    }
+  );
+
+  app.delete(
+    "/price-rules/:id",
+    { preHandler: requirePermission(PERMISSIONS.PRICING_WRITE) },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      await catalogService.deletePriceRule(id);
+      return reply.status(204).send();
     }
   );
 }

@@ -46,8 +46,19 @@ export const createPriceRuleSchema = z.object({
   validTo: z.coerce.date().optional(),
 });
 
+export const updatePriceRuleSchema = z.object({
+  zoneId: z.string().uuid().nullable().optional(),
+  multiplier: z.number().positive().optional(),
+  fixedAdjustment: z.number().nullable().optional(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+  validFrom: z.coerce.date().nullable().optional(),
+  validTo: z.coerce.date().nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+
 export const resolvePriceQuerySchema = z.object({
   zoneId: z.string().uuid().optional(),
+  at: z.coerce.date().optional(), // preview pricing for a specific date (e.g. "what would this cost on a Friday")
 });
 
 export type CreateOpItemBody = z.infer<typeof createOpItemSchema>;
@@ -55,3 +66,4 @@ export type UpdateOpItemBody = z.infer<typeof updateOpItemSchema>;
 export type CreateVariationBody = z.infer<typeof createVariationSchema>;
 export type UpdateVariationBody = z.infer<typeof updateVariationSchema>;
 export type CreatePriceRuleBody = z.infer<typeof createPriceRuleSchema>;
+export type UpdatePriceRuleBody = z.infer<typeof updatePriceRuleSchema>;
