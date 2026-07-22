@@ -3,10 +3,11 @@ import { randomUUID } from "node:crypto";
 import { BadRequestError, ForbiddenError, NotFoundError, ConflictError } from "../../lib/errors.js";
 import { TimeslotsService } from "../timeslots/timeslots.service.js";
 import { CatalogService } from "../catalog/catalog.service.js";
+import { PaymentsService } from "../payments/payments.service.js";
+import { PromoCodesService } from "../promo-codes/promo-codes.service.js";
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { isGeofencingEnabled } from "../../lib/settings.js";
 import type { CreateOrderBody, ListOrdersQuery } from "./orders.schemas.js";
-import { PaymentsService } from "../payments/payments.service.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
 
 /** Human-friendly numeric IDs matching the reference admin panel's style
@@ -98,23 +99,40 @@ export class OrdersService {
 
     const catalogService = new CatalogService(this.app);
     const timeslotsService = new TimeslotsService(this.app);
+    const promoCodesService = new PromoCodesService(this.app);
 
     const basePricePerVehicle = await catalogService.resolveEffectivePrice(itemVariation.id, address.zoneId ?? null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const addOnsPricePerVehicle = addOnVariations.reduce((sum: number, v) => sum + Number(v.priceAED), 0);
-    const totalAED = (basePricePerVehicle + addOnsPricePerVehicle) * vehicles.length;
+    const subtotalAED = (basePricePerVehicle + addOnsPricePerVehicle) * vehicles.length;
 
     const orderId = randomUUID();
 
-    // Everything below is one transaction: booking the timeslot's capacity
-    // and creating the order + its shipments either all succeed together or
-    // all roll back together. This is exactly why TimeslotsService exposes
-    // bookSlotInTransaction() — a standalone bookSlot() call here would let
-    // an order-creation failure leave a slot's capacity claimed with no
-    // order to show for it.
+    // Everything below is one transaction: booking the timeslot's capacity,
+    // validating+redeeming any promo code, and creating the order + its
+    // shipments either all succeed together or all roll back together.
+    // Promo validation happens INSIDE the transaction (not before it)
+    // specifically so the redemption-limit check is atomic with the
+    // order's own creation — two concurrent orders can't both pass a
+    // "not yet at the limit" check before either commits.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await timeslotsService.bookSlotInTransaction(tx, body.timeslotId, userId);
+
+      let discountAED = 0;
+      let promoCodeId: string | null = null;
+      if (body.promoCode) {
+        const result = await promoCodesService.validatePromoCodeInTransaction(
+          tx,
+          body.promoCode,
+          userId,
+          subtotalAED
+        );
+        discountAED = result.discountAED;
+        promoCodeId = result.promoCodeId;
+      }
+
+      const totalAED = Math.round((subtotalAED - discountAED) * 100) / 100;
 
       const orderNumber = await generateUniqueOrderNumber(tx);
 
@@ -126,6 +144,8 @@ export class OrdersService {
           addressId: body.addressId,
           timeslotId: body.timeslotId,
           totalAED,
+          discountAED,
+          promoCodeId,
         },
       });
 

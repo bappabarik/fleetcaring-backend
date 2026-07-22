@@ -489,6 +489,9 @@ model Order {
   completedAt      DateTime?
   cancelledAt      DateTime?
   cancellationReason String?
+  discountAED      Decimal       @db.Decimal(10, 2) @default(0)
+  promoCodeId      String?
+  promoCode        PromoCode?    @relation(fields: [promoCodeId], references: [id])
   createdAt        DateTime      @default(now())
 
   notes     OrderNote[]
@@ -505,6 +508,29 @@ model OrderNote {
   authorId   String?
   text       String
   createdAt  DateTime @default(now())
+}
+
+enum PromoDiscountType {
+  PERCENTAGE
+  FIXED_AED
+}
+
+model PromoCode {
+  id                    String            @id @default(uuid())
+  code                  String            @unique
+  description           String?
+  discountType          PromoDiscountType
+  discountValue         Decimal           @db.Decimal(10, 2)
+  minOrderAED           Decimal?          @db.Decimal(10, 2)
+  maxDiscountAED        Decimal?          @db.Decimal(10, 2)
+  maxRedemptions        Int?
+  maxRedemptionsPerUser Int               @default(1)
+  validFrom             DateTime
+  validTo               DateTime?
+  isActive              Boolean           @default(true)
+  createdAt             DateTime          @default(now())
+
+  orders Order[]
 }
 
 model Payment {

@@ -7,6 +7,7 @@ export const createOrderSchema = z.object({
   vehicleIds: z.array(z.string().uuid()).min(1),
   addOnItemVariationIds: z.array(z.string().uuid()).default([]),
   notes: z.string().optional(),
+  promoCode: z.string().min(1).optional()
 });
 
 export const cancelOrderSchema = z.object({
