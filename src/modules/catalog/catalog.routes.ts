@@ -30,6 +30,15 @@ export async function catalogRoutes(app: FastifyInstance) {
     return reply.send(await catalogService.listActiveItemsForVertical(id));
   });
 
+  app.get(
+  "/verticals/:id/items/all",
+  { preHandler: requirePermission(PERMISSIONS.CATALOG_READ) },
+  async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return reply.send(await catalogService.listAllItemsForVertical(id));
+  }
+);
+
   app.get("/variations/:id/price", async (request, reply) => {
     const parsed = resolvePriceQuerySchema.safeParse(request.query);
     if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());

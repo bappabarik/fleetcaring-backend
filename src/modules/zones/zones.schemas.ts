@@ -16,6 +16,7 @@ export const createZoneSchema = z.object({
 export const updateZoneSchema = z.object({
   name: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
+  boundary: geoJsonPolygonSchema.optional(),
 });
 
 export const resolveZoneQuerySchema = z.object({

@@ -43,7 +43,7 @@ function rowToSummary(row: ZoneRow): ZoneSummary {
 }
 
 export class ZonesService {
-  constructor(private app: FastifyInstance) {}
+  constructor(private app: FastifyInstance) { }
 
   private get prisma() {
     return this.app.prisma;
@@ -89,20 +89,20 @@ export class ZonesService {
   async listZones(activeOnly = false): Promise<ZoneSummary[]> {
     const rows = activeOnly
       ? await this.prisma.$queryRaw<ZoneRow[]>(
-          Prisma.sql`
+        Prisma.sql`
             SELECT id, code, name, "isActive", ST_AsGeoJSON(boundary) AS geojson
             FROM "Zone"
             WHERE "isActive" = true
             ORDER BY name
           `
-        )
+      )
       : await this.prisma.$queryRaw<ZoneRow[]>(
-          Prisma.sql`
+        Prisma.sql`
             SELECT id, code, name, "isActive", ST_AsGeoJSON(boundary) AS geojson
             FROM "Zone"
             ORDER BY name
           `
-        );
+      );
     return rows.map(rowToSummary);
   }
 
@@ -118,10 +118,49 @@ export class ZonesService {
     return rowToSummary(rows[0]);
   }
 
-  async updateZone(id: string, data: { name?: string; isActive?: boolean }) {
+  async updateZone(id: string, data: { name?: string; isActive?: boolean; boundary?: GeoJsonPolygon }) {
     const zone = await this.prisma.zone.findUnique({ where: { id } });
     if (!zone) throw new NotFoundError("Zone not found");
-    await this.prisma.zone.update({ where: { id }, data });
+
+    if (data.boundary) {
+      const boundaryJson = JSON.stringify(data.boundary);
+
+      const validityCheck = await this.prisma.$queryRaw<{ is_valid: boolean }[]>(
+        Prisma.sql`SELECT ST_IsValid(ST_GeomFromGeoJSON(${boundaryJson})) AS is_valid`
+      );
+      if (!validityCheck[0]?.is_valid) {
+        throw new BadRequestError("The drawn boundary is not a valid polygon (likely self-intersecting)");
+      }
+
+      // Exclude this zone itself — otherwise a zone being edited would
+      // always "overlap" with its own pre-existing boundary already in
+      // the database.
+      const overlapping = await this.prisma.$queryRaw<{ code: string; name: string }[]>(
+        Prisma.sql`
+        SELECT code, name FROM "Zone"
+        WHERE "isActive" = true
+          AND id != ${id}
+          AND ST_Overlaps(boundary, ST_GeomFromGeoJSON(${boundaryJson}))
+      `
+      );
+      if (overlapping.length > 0) {
+        throw new ConflictError(
+          `Boundary overlaps with existing active zone(s): ${overlapping.map((z: { name: string }) => z.name).join(", ")}`
+        );
+      }
+
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw(
+          Prisma.sql`UPDATE "Zone" SET boundary = ST_GeomFromGeoJSON(${boundaryJson}) WHERE id = ${id}`
+        ),
+        ...(data.name !== undefined || data.isActive !== undefined
+          ? [this.prisma.zone.update({ where: { id }, data: { name: data.name, isActive: data.isActive } })]
+          : []),
+      ]);
+    } else if (data.name !== undefined || data.isActive !== undefined) {
+      await this.prisma.zone.update({ where: { id }, data: { name: data.name, isActive: data.isActive } });
+    }
+
     return this.getZoneById(id);
   }
 

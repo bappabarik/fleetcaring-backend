@@ -48,6 +48,23 @@ export class CatalogService {
     });
   }
 
+  /** Admin-scoped counterpart to listActiveItemsForVertical — includes
+ * inactive op-items AND inactive variations, so an admin can actually see
+ * (and reactivate) something that's been deactivated. The public browse
+ * endpoint stays active-only and unauthenticated on purpose; this is a
+ * deliberately separate route rather than a query-param toggle on the
+ * public one, so "see inactive items" always requires CATALOG_READ. */
+async listAllItemsForVertical(verticalId: string) {
+  return this.prisma.opItem.findMany({
+    where: { verticalId },
+    include: {
+      brand: true,
+      variations: true,
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
   async createOpItem(data: CreateOpItemBody) {
     return this.prisma.opItem.create({ data });
   }
