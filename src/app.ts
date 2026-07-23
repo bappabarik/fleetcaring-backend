@@ -31,6 +31,7 @@ import { issuesRoutes } from "./modules/issues/issues.routes.js";
 import { adminUsersRoutes } from "./modules/admin-users/admin-users.routes.js";
 import { customersRoutes } from "./modules/customers/customers.routes.js";
 import { promoCodesRoutes } from "./modules/promo-codes/promo-codes.routes.js";
+import { financeRoutes } from "./modules/finance/finance.routes.js";
 
 
 
@@ -118,6 +119,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(adminUsersRoutes, { prefix: "/admin-users" });
   await app.register(customersRoutes, { prefix: "/customers" });
   await app.register(promoCodesRoutes, { prefix: "/promo-codes" });
+  await app.register(financeRoutes, { prefix: "/finance" });
   
   // ...more modules land here as they're built
 
