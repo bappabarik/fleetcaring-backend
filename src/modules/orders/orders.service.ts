@@ -9,6 +9,7 @@ import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { isGeofencingEnabled } from "../../lib/settings.js";
 import type { CreateOrderBody, ListOrdersQuery } from "./orders.schemas.js";
 import { Prisma, Shipment, ShipmentStatus } from "@prisma/client";
+import { SAFE_PILOT_SELECT } from "../../lib/safeSelects.js";
 
 /** Human-friendly numeric IDs matching the reference admin panel's style
  * (e.g. "14295643"). Both use the same 8-digit range (90M possibilities) —
@@ -187,20 +188,58 @@ export class OrdersService {
     });
   }
 
-  async getOrderById(id: string, requestingUserId?: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
-      include: {
-        shipments: { include: { checks: true, issues: true, statusHistory: true, addOns: true } },
-        notes: true,
-        payment: true,
-        promoCode: { select: { id: true, code: true, description: true } },
+async getOrderById(id: string, requestingUserId?: string) {
+  const order = await this.prisma.order.findUnique({
+    where: { id },
+    include: {
+      shipments: {
+        include: {
+          checks: true,
+          issues: true,
+          statusHistory: true,
+          addOns: { include: { itemVariation: true } },
+          vehicle: true,
+          itemVariation: true,
+        },
       },
-    });
-    if (!order) throw new NotFoundError("Order not found");
-    if (requestingUserId && order.userId !== requestingUserId) throw new ForbiddenError("Not your order");
-    return order;
-  }
+      notes: true,
+      payment: true,
+      promoCode: { select: { id: true, code: true, description: true } },
+      user: true,
+      address: { include: { zone: true } },
+    },
+  });
+  if (!order) throw new NotFoundError("Order not found");
+  if (requestingUserId && order.userId !== requestingUserId) throw new ForbiddenError("Not your order");
+
+  // Shipment.pilotId/assetId have no FK relation declared (plain scalar
+  // strings, confirmed when fixing the double-booking gap) — Prisma can't
+  // `include` them directly. Batch-fetch the distinct pilot/asset ids
+  // referenced across this order's shipments instead, and attach them
+  // manually. SAFE_PILOT_SELECT keeps passwordHash out of this response,
+  // same as everywhere else a Pilot gets nested into something.
+  const pilotIds = [...new Set(order.shipments.map((s) => s.pilotId).filter((id): id is string => !!id))];
+  const assetIds = [...new Set(order.shipments.map((s) => s.assetId).filter((id): id is string => !!id))];
+
+  const [pilots, assets] = await Promise.all([
+    pilotIds.length
+      ? this.prisma.pilot.findMany({ where: { id: { in: pilotIds } }, select: SAFE_PILOT_SELECT })
+      : [],
+    assetIds.length ? this.prisma.asset.findMany({ where: { id: { in: assetIds } } }) : [],
+  ]);
+
+  const pilotById = new Map(pilots.map((p) => [p.id, p]));
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+
+  return {
+    ...order,
+    shipments: order.shipments.map((s) => ({
+      ...s,
+      pilot: s.pilotId ? pilotById.get(s.pilotId) ?? null : null,
+      asset: s.assetId ? assetById.get(s.assetId) ?? null : null,
+    })),
+  };
+}
 
   async listOrdersForUser(userId: string, limit = 20, cursor?: string) {
     const orders = await this.prisma.order.findMany({
