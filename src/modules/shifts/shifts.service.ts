@@ -193,48 +193,52 @@ export class ShiftsService {
    * "On duty" (in progress, no active break), or "On break" (in progress,
    * with an active break and its remaining minutes). */
   async getPilotDashboard(pilotId: string) {
-    const now = new Date();
+  const now = new Date();
 
-    const inProgressShift = await this.prisma.shift.findFirst({
-      where: { pilotId, status: "IN_PROGRESS" },
-      include: { asset: true, zone: true },
-    });
+  const inProgressShift = await this.prisma.shift.findFirst({
+    where: { pilotId, status: "IN_PROGRESS" },
+    include: { asset: true, zone: true },
+  });
 
-    if (inProgressShift) {
-      const activeBreak = await this.prisma.pilotBreak.findFirst({
-        where: { shiftId: inProgressShift.id, endedAt: null },
-      });
-
-      return {
-        state: activeBreak ? "ON_BREAK" : "ON_DUTY",
-        shift: inProgressShift,
-        activeBreak: activeBreak
-          ? {
-              ...activeBreak,
-              remainingMins: Math.max(
-                0,
-                Math.round(
-                  (activeBreak.startedAt.getTime() +
-                    activeBreak.durationAllowedMins * 60_000 -
-                    now.getTime()) /
-                    60_000
-                )
-              ),
-            }
-          : null,
-      };
-    }
-
-    const nextShift = await this.prisma.shift.findFirst({
-      where: { pilotId, status: "SCHEDULED", startTime: { gte: now } },
-      orderBy: { startTime: "asc" },
-      include: { asset: true, zone: true },
+  if (inProgressShift) {
+    const activeBreak = await this.prisma.pilotBreak.findFirst({
+      where: { shiftId: inProgressShift.id, endedAt: null },
     });
 
     return {
-      state: nextShift ? "SHIFT_SCHEDULED" : "NO_SHIFT",
-      shift: nextShift ?? null,
-      activeBreak: null,
+      state: activeBreak ? "ON_BREAK" : "ON_DUTY",
+      shift: inProgressShift,
+      activeBreak: activeBreak
+        ? {
+            ...activeBreak,
+            remainingMins: Math.max(
+              0,
+              Math.round(
+                (activeBreak.startedAt.getTime() +
+                  activeBreak.durationAllowedMins * 60_000 -
+                  now.getTime()) /
+                  60_000
+              )
+            ),
+          }
+        : null,
     };
   }
+
+  // Changed: endTime (not startTime) — a SCHEDULED shift whose start
+  // time has already arrived (or even slightly passed) but hasn't ended
+  // yet should still show up as the pilot's shift, not vanish the
+  // instant its nominal start time ticks by.
+  const nextShift = await this.prisma.shift.findFirst({
+    where: { pilotId, status: "SCHEDULED", endTime: { gte: now } },
+    orderBy: { startTime: "asc" },
+    include: { asset: true, zone: true },
+  });
+
+  return {
+    state: nextShift ? "SHIFT_SCHEDULED" : "NO_SHIFT",
+    shift: nextShift ?? null,
+    activeBreak: null,
+  };
+}
 }
