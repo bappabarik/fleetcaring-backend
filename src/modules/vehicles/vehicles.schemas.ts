@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const fuelTypeSchema = z.enum(["PETROL", "DIESEL", "ELECTRIC", "HYBRID"]);
+const vehicleClassEnum = z.enum(["SEDAN", "SUV", "VAN", "TRUCK"]);
 
 export const createVehicleSchema = z.object({
   make: z.string().min(1),
@@ -9,6 +10,8 @@ export const createVehicleSchema = z.object({
   licensePlate: z.string().min(1),
   color: z.string().min(1),
   fuelType: fuelTypeSchema,
+  vehicleClass: vehicleClassEnum, // presumably already added per your last message
+  photoUrl: z.string().url().optional(),
   isDefault: z.boolean().optional(),
 });
 
@@ -19,6 +22,8 @@ export const updateVehicleSchema = z.object({
   licensePlate: z.string().min(1).optional(),
   color: z.string().min(1).optional(),
   fuelType: fuelTypeSchema.optional(),
+  vehicleClass: vehicleClassEnum.optional(),
+  photoUrl: z.string().url().nullable().optional(),
   isDefault: z.boolean().optional(),
 });
 

@@ -59,6 +59,8 @@ model Vehicle {
   licensePlate String
   color        String
   fuelType     FuelType
+  vehicleClass VehicleClass @default(SEDAN)
+  photoUrl     String?
   isDefault    Boolean    @default(false)
   createdAt    DateTime   @default(now())
 
