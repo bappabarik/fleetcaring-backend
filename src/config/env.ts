@@ -12,6 +12,9 @@ const envSchema = z.object({
   TWILIO_VERIFY_SERVICE_SID: z.string().optional().default(""),
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
+  RAZORPAY_KEY_ID: z.string().optional().default(""),
+  RAZORPAY_KEY_SECRET: z.string().optional().default(""),
+  RAZORPAY_WEBHOOK_SECRET: z.string().optional().default(""),
   FCM_PROJECT_ID: z.string().optional().default(""),
   FCM_CLIENT_EMAIL: z.string().optional().default(""),
   FCM_PRIVATE_KEY: z.string().optional().default(""),
@@ -33,6 +36,12 @@ const envSchema = z.object({
   DEFAULT_COUNTRY_ISO: z.string().length(2), // ISO 3166-1 alpha-2, e.g. "IN", "AE"
   DEFAULT_COUNTRY_DIAL_CODE: z.string().regex(/^\+[1-9]\d{0,3}$/), // e.g. "+91", "+971"
   DEFAULT_TIMEZONE: z.string().min(1), // IANA zone, e.g. "Asia/Kolkata", "Asia/Dubai"
+
+  // --- Payments — which online gateway this deployment uses is also a
+  // per-deployment choice (India: Razorpay for UPI/cards, Dubai: Stripe). Cash on
+  // Delivery is independent of the gateway and can be toggled off per deployment. ---
+  PAYMENT_PROVIDER: z.enum(["stripe", "razorpay"]),
+  COD_ENABLED: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

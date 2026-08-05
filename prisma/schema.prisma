@@ -544,7 +544,8 @@ model Payment {
   provider    String        // "stripe"
   status      PaymentStatus
   amount      Decimal       @db.Decimal(10, 2)
-  providerRef String?       // Stripe PaymentIntent ID
+  providerRef String?       // gateway's session/order id (Stripe PaymentIntent id, Razorpay order id); unused for "cod"
+  providerPaymentId String? // gateway's captured-payment id, when distinct from providerRef (Razorpay refunds are keyed by this, not providerRef); unused by Stripe/cod
   createdAt   DateTime      @default(now())
 }
 
@@ -552,10 +553,13 @@ model Payment {
 // unique id constraint (the Stripe event id itself) is what makes
 // processing idempotent: a duplicate delivery's insert simply fails and
 // gets skipped, rather than double-crediting a payment.
-model StripeWebhookEvent {
-  id          String   @id // Stripe's own event id, e.g. "evt_..."
+model PaymentWebhookEvent {
+  provider    String   // "stripe" | "razorpay"
+  id          String   // the gateway's own event id, e.g. "evt_..." — only unique within its provider's id space
   type        String
   processedAt DateTime @default(now())
+
+  @@id([provider, id])
 }
 
 // Generic admin-controlled runtime settings — starts with the geofencing

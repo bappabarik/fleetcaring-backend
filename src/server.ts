@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { createTimeslotMaterializerQueue, createBreakExpiryQueue } from "./lib/queues.js";
 import { startTimeslotMaterializerWorker } from "./workers/timeslotMaterializer.worker.js";
 import { startBreakExpiryWorker } from "./workers/breakExpiry.worker.js";
-import { startStripeWebhookWorker } from "./workers/stripeWebhook.worker.js";
+import { startPaymentWebhookWorker } from "./workers/paymentWebhook.worker.js";
 import { startPushDispatcherWorker } from "./workers/pushDispatcher.worker.js";
 
 async function main() {
@@ -38,8 +38,8 @@ async function main() {
   const breakExpiryWorker = startBreakExpiryWorker(app);
 
   // No repeatable job here — this queue is only ever populated by the
-  // webhook route itself when Stripe actually delivers an event.
-  const stripeWebhookWorker = startStripeWebhookWorker(app);
+  // webhook route itself when the active gateway actually delivers an event.
+  const paymentWebhookWorker = startPaymentWebhookWorker(app);
   const pushDispatcherWorker = startPushDispatcherWorker(app);
 
   const shutdown = async (signal: string) => {
@@ -48,7 +48,7 @@ async function main() {
     await materializerQueue.close();
     await breakExpiryWorker.close();
     await breakExpiryQueue.close();
-    await stripeWebhookWorker.close();
+    await paymentWebhookWorker.close();
     await pushDispatcherWorker.close();
     await app.close();
     process.exit(0);

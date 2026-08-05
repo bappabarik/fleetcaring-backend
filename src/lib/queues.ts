@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 
 export const TIMESLOT_MATERIALIZER_QUEUE = "timeslot-materializer";
 export const BREAK_EXPIRY_QUEUE = "break-expiry";
-export const STRIPE_WEBHOOK_QUEUE = "stripe-webhook-processor";
+export const PAYMENT_WEBHOOK_QUEUE = "payment-webhook-processor";
 export const PUSH_NOTIFICATION_QUEUE = "push-dispatcher";
 
 /**
@@ -40,8 +40,8 @@ export function createBreakExpiryQueue(): Queue {
 }
 
 
-export function createStripeWebhookQueue(): Queue {
-  return new Queue(STRIPE_WEBHOOK_QUEUE, {
+export function createPaymentWebhookQueue(): Queue {
+  return new Queue(PAYMENT_WEBHOOK_QUEUE, {
     connection: parseRedisConnectionOptions(env.REDIS_URL),
   });
 }
