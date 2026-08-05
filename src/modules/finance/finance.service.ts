@@ -36,35 +36,35 @@ export class FinanceService {
       include: { payment: true },
     });
 
-    let totalRevenueAED = 0;
-    let totalRefundedAED = 0;
-    let discountTotalAED = 0;
+    let totalRevenue = 0;
+    let totalRefunded = 0;
+    let discountTotal = 0;
     let completedOrderCount = 0;
     let cancelledOrderCount = 0;
 
-    const dailyMap = new Map<string, { revenueAED: number; orderCount: number }>();
+    const dailyMap = new Map<string, { revenue: number; orderCount: number }>();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const order of orders as any[]) {
-      discountTotalAED += Number(order.discountAED);
+      discountTotal += Number(order.discount);
       if (order.completedAt) completedOrderCount++;
       if (order.cancelledAt) cancelledOrderCount++;
 
       const dateKey = order.createdAt.toISOString().split("T")[0];
-      const dayEntry = dailyMap.get(dateKey) ?? { revenueAED: 0, orderCount: 0 };
+      const dayEntry = dailyMap.get(dateKey) ?? { revenue: 0, orderCount: 0 };
       dayEntry.orderCount += 1;
 
       // A refund overwrites the payment's status to REFUNDED (see
       // PaymentsService.refundPayment) — so a refunded order's amount is
-      // attributed ONLY to totalRefundedAED, never double-counted in
-      // totalRevenueAED, and netRevenueAED below correctly nets it out.
+      // attributed ONLY to totalRefunded, never double-counted in
+      // totalRevenue, and netRevenue below correctly nets it out.
       if (order.payment) {
-        const amount = Number(order.payment.amountAED);
+        const amount = Number(order.payment.amount);
         if (order.payment.status === "CAPTURED" || order.payment.status === "HOLD_SUCCESS") {
-          totalRevenueAED += amount;
-          dayEntry.revenueAED += amount;
+          totalRevenue += amount;
+          dayEntry.revenue += amount;
         } else if (order.payment.status === "REFUNDED") {
-          totalRefundedAED += amount;
+          totalRefunded += amount;
         }
       }
 
@@ -75,7 +75,7 @@ export class FinanceService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, data]) => ({
         date,
-        revenueAED: round2(data.revenueAED),
+        revenue: round2(data.revenue),
         orderCount: data.orderCount,
       }));
 
@@ -83,11 +83,11 @@ export class FinanceService {
       orderCount: orders.length,
       completedOrderCount,
       cancelledOrderCount,
-      totalRevenueAED: round2(totalRevenueAED),
-      totalRefundedAED: round2(totalRefundedAED),
-      netRevenueAED: round2(totalRevenueAED - totalRefundedAED),
-      discountTotalAED: round2(discountTotalAED),
-      averageOrderValueAED: orders.length > 0 ? round2(totalRevenueAED / orders.length) : 0,
+      totalRevenue: round2(totalRevenue),
+      totalRefunded: round2(totalRefunded),
+      netRevenue: round2(totalRevenue - totalRefunded),
+      discountTotal: round2(discountTotal),
+      averageOrderValue: orders.length > 0 ? round2(totalRevenue / orders.length) : 0,
       dailyBreakdown,
     };
   }

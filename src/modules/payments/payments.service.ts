@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { NotFoundError, ForbiddenError, ConflictError } from "../../lib/errors.js";
 import { stripe, isStripeConfigured } from "../../lib/stripe.js";
+import { env } from "../../config/env.js";
 
 export class PaymentsService {
   constructor(private app: FastifyInstance) {}
@@ -41,11 +42,14 @@ export class PaymentsService {
       await this.prisma.user.update({ where: { id: order.user.id }, data: { stripeCustomerId } });
     }
 
-    const amountFils = Math.round(Number(order.totalAED) * 100);
+    // Stripe amounts are in the currency's smallest unit — both AED and INR use
+    // 100 minor units (fils / paise), so this math is currency-agnostic already;
+    // only the currency code below needs to vary per deployment.
+    const amountMinorUnits = Math.round(Number(order.total) * 100);
 
     const intent = await stripe.paymentIntents.create({
-      amount: amountFils,
-      currency: "aed",
+      amount: amountMinorUnits,
+      currency: env.CURRENCY_CODE.toLowerCase(),
       customer: stripeCustomerId,
       metadata: { orderId: order.id, orderNumber: order.orderNumber },
       automatic_payment_methods: { enabled: true, allow_redirects: "never" },
@@ -53,13 +57,13 @@ export class PaymentsService {
 
     const payment = await this.prisma.payment.upsert({
       where: { orderId },
-      update: { status: "PENDING", providerRef: intent.id, amountAED: order.totalAED },
+      update: { status: "PENDING", providerRef: intent.id, amount: order.total },
       create: {
         orderId,
         provider: "stripe",
         status: "PENDING",
         providerRef: intent.id,
-        amountAED: order.totalAED,
+        amount: order.total,
       },
     });
 

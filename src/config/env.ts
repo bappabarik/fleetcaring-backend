@@ -23,6 +23,16 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   CORS_ORIGIN: z.string().default("*"),
+
+  // --- Region config — every deployment is a single country/currency/timezone
+  // (India and Dubai run as separate deployments, not one multi-currency instance).
+  // No defaults on purpose: forces every deployment to explicitly declare its region
+  // rather than silently inheriting whatever the last market happened to be. ---
+  CURRENCY_CODE: z.string().length(3), // ISO 4217, e.g. "INR", "AED"
+  CURRENCY_SYMBOL: z.string().min(1), // display symbol, e.g. "₹", "AED"
+  DEFAULT_COUNTRY_ISO: z.string().length(2), // ISO 3166-1 alpha-2, e.g. "IN", "AE"
+  DEFAULT_COUNTRY_DIAL_CODE: z.string().regex(/^\+[1-9]\d{0,3}$/), // e.g. "+91", "+971"
+  DEFAULT_TIMEZONE: z.string().min(1), // IANA zone, e.g. "Asia/Kolkata", "Asia/Dubai"
 });
 
 export type Env = z.infer<typeof envSchema>;

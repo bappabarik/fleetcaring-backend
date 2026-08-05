@@ -185,7 +185,7 @@ async listAllItemsForVertical(verticalId: string) {
       return b.createdAt.getTime() - a.createdAt.getTime();
     })[0];
 
-    const basePrice = Number(variation.priceAED);
+    const basePrice = Number(variation.price);
     if (!rule) return basePrice;
 
     const multiplied = basePrice * Number(rule.multiplier);

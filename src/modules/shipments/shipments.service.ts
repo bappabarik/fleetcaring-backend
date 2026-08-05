@@ -284,7 +284,7 @@ function mapShipmentToTaskCard(shipment: any) {
     order: {
       id: shipment.order.id,
       orderNumber: shipment.order.orderNumber,
-      totalAED: shipment.order.totalAED,
+      total: shipment.order.total,
     },
     scheduledDate: shipment.order.timeslot.date,
     scheduledStartTime: shipment.order.timeslot.startTime,

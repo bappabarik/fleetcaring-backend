@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const promoDiscountTypeSchema = z.enum(["PERCENTAGE", "FIXED_AED"]);
+export const promoDiscountTypeSchema = z.enum(["PERCENTAGE", "FIXED_AMOUNT"]);
 
 export const createPromoCodeSchema = z
   .object({
@@ -8,8 +8,8 @@ export const createPromoCodeSchema = z
     description: z.string().max(200).optional(),
     discountType: promoDiscountTypeSchema,
     discountValue: z.number().positive(),
-    minOrderAED: z.number().positive().optional(),
-    maxDiscountAED: z.number().positive().optional(),
+    minOrder: z.number().positive().optional(),
+    maxDiscount: z.number().positive().optional(),
     maxRedemptions: z.number().int().positive().optional(),
     maxRedemptionsPerUser: z.number().int().positive().default(1),
     validFrom: z.coerce.date(),
@@ -29,7 +29,7 @@ export const updatePromoCodeSchema = z.object({
 
 export const validatePromoCodeSchema = z.object({
   code: z.string().min(1),
-  orderSubtotalAED: z.number().positive(),
+  orderSubtotal: z.number().positive(),
 });
 
 export const listPromoCodesQuerySchema = z.object({

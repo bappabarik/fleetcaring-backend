@@ -44,8 +44,8 @@ export async function catalogRoutes(app: FastifyInstance) {
     if (!parsed.success) throw new BadRequestError("Invalid query", parsed.error.flatten());
 
     const { id } = request.params as { id: string };
-    const priceAED = await catalogService.resolveEffectivePrice(id, parsed.data.zoneId ?? null, parsed.data.at);
-    return reply.send({ priceAED });
+    const price = await catalogService.resolveEffectivePrice(id, parsed.data.zoneId ?? null, parsed.data.at);
+    return reply.send({ price });
   });
 
   // ---------- Admin writes ----------

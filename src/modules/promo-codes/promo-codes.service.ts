@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { NotFoundError, ConflictError } from "../../lib/errors.js";
+import { env } from "../../config/env.js";
 import type { CreatePromoCodeBody, UpdatePromoCodeBody, ListPromoCodesQuery } from "./promo-codes.schemas.js";
 
 export interface DiscountResult {
   promoCodeId: string;
-  discountAED: number;
+  discount: number;
 }
 
 export class PromoCodesService {
@@ -62,8 +63,8 @@ export class PromoCodesService {
     });
   }
 
-  async validatePromoCode(code: string, userId: string, orderSubtotalAED: number): Promise<DiscountResult> {
-    return this.computeDiscount(this.prisma, code, userId, orderSubtotalAED);
+  async validatePromoCode(code: string, userId: string, orderSubtotal: number): Promise<DiscountResult> {
+    return this.computeDiscount(this.prisma, code, userId, orderSubtotal);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,9 +72,9 @@ export class PromoCodesService {
     tx: any,
     code: string,
     userId: string,
-    orderSubtotalAED: number
+    orderSubtotal: number
   ): Promise<DiscountResult> {
-    return this.computeDiscount(tx, code, userId, orderSubtotalAED);
+    return this.computeDiscount(tx, code, userId, orderSubtotal);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +82,7 @@ export class PromoCodesService {
     db: any,
     code: string,
     userId: string,
-    orderSubtotalAED: number
+    orderSubtotal: number
   ): Promise<DiscountResult> {
     const promo = await db.promoCode.findUnique({ where: { code: code.toUpperCase() } });
     if (!promo || !promo.isActive) throw new NotFoundError("Promo code not found");
@@ -90,8 +91,8 @@ export class PromoCodesService {
     if (promo.validFrom > now) throw new ConflictError("This promo code is not active yet");
     if (promo.validTo && promo.validTo < now) throw new ConflictError("This promo code has expired");
 
-    if (promo.minOrderAED && orderSubtotalAED < Number(promo.minOrderAED)) {
-      throw new ConflictError(`This promo code requires a minimum order of AED ${promo.minOrderAED}`);
+    if (promo.minOrder && orderSubtotal < Number(promo.minOrder)) {
+      throw new ConflictError(`This promo code requires a minimum order of ${env.CURRENCY_SYMBOL} ${promo.minOrder}`);
     }
 
     if (promo.maxRedemptions !== null) {
@@ -106,16 +107,16 @@ export class PromoCodesService {
       throw new ConflictError("You've already used this promo code the maximum number of times");
     }
 
-    let discountAED: number;
+    let discount: number;
     if (promo.discountType === "PERCENTAGE") {
-      discountAED = orderSubtotalAED * (Number(promo.discountValue) / 100);
-      if (promo.maxDiscountAED) discountAED = Math.min(discountAED, Number(promo.maxDiscountAED));
+      discount = orderSubtotal * (Number(promo.discountValue) / 100);
+      if (promo.maxDiscount) discount = Math.min(discount, Number(promo.maxDiscount));
     } else {
-      discountAED = Number(promo.discountValue);
+      discount = Number(promo.discountValue);
     }
-    discountAED = Math.min(discountAED, orderSubtotalAED);
-    discountAED = Math.round(discountAED * 100) / 100;
+    discount = Math.min(discount, orderSubtotal);
+    discount = Math.round(discount * 100) / 100;
 
-    return { promoCodeId: promo.id, discountAED };
+    return { promoCodeId: promo.id, discount };
   }
 }

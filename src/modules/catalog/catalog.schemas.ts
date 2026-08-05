@@ -21,7 +21,7 @@ const vehicleClassEnum = z.enum(["SEDAN", "SUV", "VAN", "TRUCK"]);
 export const createVariationSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  priceAED: z.number().positive(),
+  price: z.number().positive(),
   durationMins: z.number().int().positive(),
   vehicleClass: vehicleClassEnum.optional(),
 });
@@ -29,7 +29,7 @@ export const createVariationSchema = z.object({
 export const updateVariationSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  priceAED: z.number().positive().optional(),
+  price: z.number().positive().optional(),
   durationMins: z.number().int().positive().optional(),
   vehicleClass: vehicleClassEnum.optional(),
   isActive: z.boolean().optional(),

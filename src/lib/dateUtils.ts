@@ -1,3 +1,6 @@
+import { env } from "../config/env.js";
+import { zonedTimeToUtc } from "./timezone.js";
+
 export type RecurrenceRule = "DAILY" | "WEEKDAYS" | "WEEKENDS";
 
 /**
@@ -9,11 +12,9 @@ export type RecurrenceRule = "DAILY" | "WEEKDAYS" | "WEEKENDS";
  * different answers in local dev (e.g. IST) vs. production (typically
  * UTC). Standardizing on UTC everywhere makes this deterministic.
  *
- * Known simplification: op-hours strings like "09:00" are currently
- * interpreted as UTC directly, not as Dubai local time (UTC+4). That's a
- * separate, smaller decision to make later (e.g. a per-zone timezone
- * field) — this fix specifically eliminates the server-timezone-dependent
- * bug, which was the immediate correctness problem.
+ * The one exception is `combineDateAndTime`, which deliberately interprets its
+ * `hhmm` argument (op-hours like "09:00") as wall-clock time in the
+ * deployment's configured `DEFAULT_TIMEZONE`, not UTC — see that function.
  */
 
 export function startOfDay(date: Date): Date {
@@ -39,9 +40,11 @@ export function matchesRecurrence(date: Date, rule: string): boolean {
   }
 }
 
-export function combineDateAndTime(date: Date, hhmm: string): Date {
-  const [hours, minutes] = hhmm.split(":").map(Number);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hours, minutes, 0, 0));
+/** Interprets `hhmm` (e.g. op-hours like "09:00") as wall-clock time in
+ * `timeZone` — defaulting to the deployment's `DEFAULT_TIMEZONE` — and returns
+ * the equivalent UTC instant on `date`'s calendar day. */
+export function combineDateAndTime(date: Date, hhmm: string, timeZone: string = env.DEFAULT_TIMEZONE): Date {
+  return zonedTimeToUtc(date, hhmm, timeZone);
 }
 
 export function generateMatchingDates(rangeStart: Date, rangeEnd: Date, rule: string): Date[] {

@@ -104,8 +104,8 @@ export class OrdersService {
 
     const basePricePerVehicle = await catalogService.resolveEffectivePrice(itemVariation.id, address.zoneId ?? null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const addOnsPricePerVehicle = addOnVariations.reduce((sum: number, v) => sum + Number(v.priceAED), 0);
-    const subtotalAED = (basePricePerVehicle + addOnsPricePerVehicle) * vehicles.length;
+    const addOnsPricePerVehicle = addOnVariations.reduce((sum: number, v) => sum + Number(v.price), 0);
+    const subtotal = (basePricePerVehicle + addOnsPricePerVehicle) * vehicles.length;
 
     const orderId = randomUUID();
 
@@ -120,20 +120,20 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await timeslotsService.bookSlotInTransaction(tx, body.timeslotId, userId);
 
-      let discountAED = 0;
+      let discount = 0;
       let promoCodeId: string | null = null;
       if (body.promoCode) {
         const result = await promoCodesService.validatePromoCodeInTransaction(
           tx,
           body.promoCode,
           userId,
-          subtotalAED
+          subtotal
         );
-        discountAED = result.discountAED;
+        discount = result.discount;
         promoCodeId = result.promoCodeId;
       }
 
-      const totalAED = Math.round((subtotalAED - discountAED) * 100) / 100;
+      const total = Math.round((subtotal - discount) * 100) / 100;
 
       const orderNumber = await generateUniqueOrderNumber(tx);
 
@@ -144,8 +144,8 @@ export class OrdersService {
           userId,
           addressId: body.addressId,
           timeslotId: body.timeslotId,
-          totalAED,
-          discountAED,
+          total,
+          discount,
           promoCodeId,
         },
       });
@@ -172,7 +172,7 @@ export class OrdersService {
 
         for (const addOn of addOnVariations) {
           await tx.shipmentAddOn.create({
-            data: { shipmentId, itemVariationId: addOn.id, priceAED: addOn.priceAED },
+            data: { shipmentId, itemVariationId: addOn.id, price: addOn.price },
           });
         }
 

@@ -245,7 +245,7 @@ model ItemVariation {
   opItem       OpItem        @relation(fields: [opItemId], references: [id])
   name         String        // "Underbody Pressure Wash", "Oscar: AED 219"
   description  String?
-  priceAED     Decimal       @db.Decimal(10, 2)
+  price        Decimal       @db.Decimal(10, 2)
   durationMins Int
   vehicleClass VehicleClass?
   isActive     Boolean       @default(true)
@@ -482,7 +482,7 @@ model Order {
   timeslotId       String
   timeslot         Timeslot      @relation(fields: [timeslotId], references: [id])
   paymentStatus    PaymentStatus @default(PENDING)
-  totalAED         Decimal       @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
   // Denormalized flag, recomputed whenever a shipment's status changes —
   // true once every shipment is COMPLETED or has an Issue raised against it.
   // This is what gates "Complete order" on the pilot app.
@@ -493,7 +493,7 @@ model Order {
   completedAt      DateTime?
   cancelledAt      DateTime?
   cancellationReason String?
-  discountAED      Decimal       @db.Decimal(10, 2) @default(0)
+  discount         Decimal       @db.Decimal(10, 2) @default(0)
   promoCodeId      String?
   promoCode        PromoCode?    @relation(fields: [promoCodeId], references: [id])
   createdAt        DateTime      @default(now())
@@ -516,7 +516,7 @@ model OrderNote {
 
 enum PromoDiscountType {
   PERCENTAGE
-  FIXED_AED
+  FIXED_AMOUNT
 }
 
 model PromoCode {
@@ -525,8 +525,8 @@ model PromoCode {
   description           String?
   discountType          PromoDiscountType
   discountValue         Decimal           @db.Decimal(10, 2)
-  minOrderAED           Decimal?          @db.Decimal(10, 2)
-  maxDiscountAED        Decimal?          @db.Decimal(10, 2)
+  minOrder              Decimal?          @db.Decimal(10, 2)
+  maxDiscount           Decimal?          @db.Decimal(10, 2)
   maxRedemptions        Int?
   maxRedemptionsPerUser Int               @default(1)
   validFrom             DateTime
@@ -543,7 +543,7 @@ model Payment {
   order       Order         @relation(fields: [orderId], references: [id])
   provider    String        // "stripe"
   status      PaymentStatus
-  amountAED   Decimal       @db.Decimal(10, 2)
+  amount      Decimal       @db.Decimal(10, 2)
   providerRef String?       // Stripe PaymentIntent ID
   createdAt   DateTime      @default(now())
 }
@@ -614,7 +614,7 @@ model ShipmentAddOn {
   shipment        Shipment      @relation(fields: [shipmentId], references: [id])
   itemVariationId String
   itemVariation   ItemVariation @relation(fields: [itemVariationId], references: [id])
-  priceAED        Decimal       @db.Decimal(10, 2)
+  price           Decimal       @db.Decimal(10, 2)
 }
 
 // Matches the admin panel's shipment timeline exactly: status + actor +

@@ -114,7 +114,7 @@ async function main() {
   let testVariation = await prisma.itemVariation.findFirst({ where: { opItemId: testOpItem.id } });
   if (!testVariation) {
     testVariation = await prisma.itemVariation.create({
-      data: { opItemId: testOpItem.id, name: "Standard Wash (Test)", priceAED: 75, durationMins: 45 },
+      data: { opItemId: testOpItem.id, name: "Standard Wash (Test)", price: 75, durationMins: 45 },
     });
   }
 

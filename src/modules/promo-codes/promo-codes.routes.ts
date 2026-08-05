@@ -47,7 +47,7 @@ export async function promoCodesRoutes(app: FastifyInstance) {
     const result = await promoCodesService.validatePromoCode(
       parsed.data.code,
       request.user.sub,
-      parsed.data.orderSubtotalAED
+      parsed.data.orderSubtotal
     );
     return reply.send(result);
   });
