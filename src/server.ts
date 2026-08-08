@@ -1,8 +1,9 @@
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
-import { createTimeslotMaterializerQueue, createBreakExpiryQueue } from "./lib/queues.js";
+import { createTimeslotMaterializerQueue, createBreakExpiryQueue, createShiftExpiryQueue } from "./lib/queues.js";
 import { startTimeslotMaterializerWorker } from "./workers/timeslotMaterializer.worker.js";
 import { startBreakExpiryWorker } from "./workers/breakExpiry.worker.js";
+import { startShiftExpiryWorker } from "./workers/shiftExpiry.worker.js";
 import { startPaymentWebhookWorker } from "./workers/paymentWebhook.worker.js";
 import { startPushDispatcherWorker } from "./workers/pushDispatcher.worker.js";
 
@@ -37,6 +38,14 @@ async function main() {
   );
   const breakExpiryWorker = startBreakExpiryWorker(app);
 
+  const shiftExpiryQueue = createShiftExpiryQueue();
+  await shiftExpiryQueue.add(
+    "check-overdue-shifts",
+    {},
+    { repeat: { pattern: "* * * * *" }, jobId: "check-overdue-shifts" } // every minute
+  );
+  const shiftExpiryWorker = startShiftExpiryWorker(app);
+
   // No repeatable job here — this queue is only ever populated by the
   // webhook route itself when the active gateway actually delivers an event.
   const paymentWebhookWorker = startPaymentWebhookWorker(app);
@@ -48,6 +57,8 @@ async function main() {
     await materializerQueue.close();
     await breakExpiryWorker.close();
     await breakExpiryQueue.close();
+    await shiftExpiryWorker.close();
+    await shiftExpiryQueue.close();
     await paymentWebhookWorker.close();
     await pushDispatcherWorker.close();
     await app.close();

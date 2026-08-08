@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { ConflictError, ForbiddenError, NotFoundError } from "../../lib/errors.js";
 import { SAFE_PILOT_SELECT } from "../../lib/safeSelects.js";
+import { startOfDay } from "../../lib/dateUtils.js";
+import { ACTIVE_SHIPMENT_STATUSES } from "../../lib/shipmentStatus.js";
 import type { CreateShiftBody, StartBreakBody, ListShiftsQuery } from "./shifts.schemas.js";
 
 const DEFAULT_BREAK_MINUTES = 60;
@@ -184,6 +186,75 @@ export class ShiftsService {
     }
 
     return { expired: expiredCount };
+  }
+
+  /**
+   * Called by the shift-expiry BullMQ worker on a short interval. Closes
+   * out shift lifecycles the clock has moved past but no human action did:
+   *
+   * - IN_PROGRESS past its endTime: if the pilot has no shipment still
+   *   actively in flight, the shift is genuinely done — auto-complete it
+   *   right then. If they DO have active work (a job running long), leave
+   *   it running as overtime rather than yanking it out from under an
+   *   active delivery.
+   * - Anything — IN_PROGRESS or SCHEDULED — still open from a PREVIOUS
+   *   calendar day is force-closed regardless of idle state, as a hard
+   *   backstop: nothing should ever carry across a day boundary. A
+   *   lingering IN_PROGRESS becomes COMPLETED (it happened, just never
+   *   got tapped closed); a SCHEDULED shift that was never started at all
+   *   becomes NO_SHOW.
+   */
+  async expireOverdueShifts(): Promise<{ completed: number; noShow: number }> {
+    const now = new Date();
+    const todayStart = startOfDay(now);
+
+    let completed = 0;
+    let noShow = 0;
+
+    const overdueInProgress = await this.prisma.shift.findMany({
+      where: { status: "IN_PROGRESS", endTime: { lt: now } },
+    });
+
+    for (const shift of overdueInProgress) {
+      const dayRolledOver = shift.endTime < todayStart;
+
+      let pilotIsIdle = true;
+      if (!dayRolledOver) {
+        const activeShipment = await this.prisma.shipment.findFirst({
+          where: { pilotId: shift.pilotId, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+        });
+        pilotIsIdle = !activeShipment;
+      }
+
+      if (dayRolledOver || pilotIsIdle) {
+        await this.prisma.$transaction([
+          this.prisma.shift.update({ where: { id: shift.id }, data: { status: "COMPLETED" } }),
+          this.prisma.shiftEvent.create({
+            data: {
+              shiftId: shift.id,
+              eventType: dayRolledOver ? "auto_completed_day_rollover" : "auto_completed",
+              actorId: null,
+            },
+          }),
+        ]);
+        completed++;
+      }
+      // else: still actively working past endTime — leave it running as overtime.
+    }
+
+    const noShowShifts = await this.prisma.shift.findMany({
+      where: { status: "SCHEDULED", endTime: { lt: todayStart } },
+    });
+
+    for (const shift of noShowShifts) {
+      await this.prisma.$transaction([
+        this.prisma.shift.update({ where: { id: shift.id }, data: { status: "NO_SHOW" } }),
+        this.prisma.shiftEvent.create({ data: { shiftId: shift.id, eventType: "no_show", actorId: null } }),
+      ]);
+      noShow++;
+    }
+
+    return { completed, noShow };
   }
 
   // ---------- Pilot-facing dashboard summary ----------

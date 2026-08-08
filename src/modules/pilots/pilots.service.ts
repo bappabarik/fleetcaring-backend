@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { NotFoundError, ConflictError } from "../../lib/errors.js";
 import { hashPassword } from "../../lib/passwords.js";
 import { SAFE_PILOT_SELECT } from "../../lib/safeSelects.js";
+import { ACTIVE_SHIPMENT_STATUSES } from "../../lib/shipmentStatus.js";
 import type {
   CreatePilotBody,
   UpdatePilotBody,
@@ -80,10 +81,42 @@ export class PilotsService {
     });
   }
 
+  /**
+   * Deliberately does NOT block deactivating a pilot who has outstanding
+   * shifts/shipments — an admin needs to be able to pull a pilot out
+   * immediately for cause (accident, misconduct) regardless of what
+   * they're mid-way through. Instead, the deactivation goes through and
+   * the response flags exactly what's left hanging, so ops can act on it
+   * right away instead of it silently sitting there attached to a pilot
+   * who's no longer active.
+   */
   async updatePilot(id: string, data: UpdatePilotBody) {
     const pilot = await this.prisma.pilot.findUnique({ where: { id } });
     if (!pilot) throw new NotFoundError("Pilot not found");
-    return this.prisma.pilot.update({ where: { id }, data, select: SAFE_PILOT_SELECT });
+
+    const updated = await this.prisma.pilot.update({ where: { id }, data, select: SAFE_PILOT_SELECT });
+
+    const isDeactivating = data.status !== undefined && data.status !== "ACTIVE" && pilot.status === "ACTIVE";
+    if (!isDeactivating) return { ...updated, outstandingWork: null };
+
+    const [outstandingShifts, activeShipments] = await Promise.all([
+      this.prisma.shift.findMany({
+        where: { pilotId: id, status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
+        select: { id: true, startTime: true, endTime: true, status: true },
+      }),
+      this.prisma.shipment.findMany({
+        where: { pilotId: id, status: { in: ACTIVE_SHIPMENT_STATUSES } },
+        select: { id: true, shipmentNumber: true, status: true, orderId: true },
+      }),
+    ]);
+
+    return {
+      ...updated,
+      outstandingWork:
+        outstandingShifts.length > 0 || activeShipments.length > 0
+          ? { shifts: outstandingShifts, shipments: activeShipments }
+          : null,
+    };
   }
 
   // ---------- Pilot self-service ----------

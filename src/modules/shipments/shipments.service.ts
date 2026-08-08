@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from "../../lib/errors.js";
 import { notifyOrderUpdate } from "../../lib/orderNotify.js";
 import { startOfDay, addDays } from "../../lib/dateUtils.js";
+import { ACTIVE_SHIPMENT_STATUSES } from "../../lib/shipmentStatus.js";
 import type { AssignShipmentBody, CheckSubmissionBody, RaiseIssueBody } from "./shipments.schemas.js";
-import { Prisma, ShipmentStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 const MIN_CHECK_PHOTOS = 2;
 
@@ -26,6 +27,18 @@ export class ShipmentsService {
     });
     if (!shipment) throw new NotFoundError("Shipment not found");
 
+    // Once a pilot has actually started this shipment (or finished it),
+    // reassigning it here would silently regress its status back to
+    // ASSIGNED and swap out the pilot/asset mid-delivery with no
+    // notification to whoever was already on it. That needs to be a
+    // deliberate, separate "reassign mid-flight" action if it's ever
+    // built — not something this endpoint does implicitly.
+    if (shipment.status !== "CREATED" && shipment.status !== "ASSIGNED") {
+      throw new ConflictError(
+        `This shipment is already ${shipment.status.toLowerCase().replace(/_/g, " ")} and can't be reassigned here`
+      );
+    }
+
     const pilot = await this.prisma.pilot.findUnique({ where: { id: data.pilotId } });
     if (!pilot) throw new NotFoundError("Pilot not found");
     if (pilot.status !== "ACTIVE") {
@@ -41,14 +54,13 @@ export class ShipmentsService {
     // this pilot or this asset) whose order's timeslot overlaps this
     // shipment's own timeslot. There was previously no FK constraint and
     // no check of any kind here at all.
-    const activeStatuses: ShipmentStatus[] = ["ASSIGNED", "ON_THE_WAY", "ARRIVED", "IN_PROGRESS"];
     const { startTime, endTime } = shipment.order.timeslot;
 
     const conflictingPilotShipment = await this.prisma.shipment.findFirst({
       where: {
         id: { not: shipmentId },
         pilotId: data.pilotId,
-        status: { in: activeStatuses },
+        status: { in: ACTIVE_SHIPMENT_STATUSES },
         order: { timeslot: { startTime: { lt: endTime }, endTime: { gt: startTime } } },
       },
     });
@@ -60,7 +72,7 @@ export class ShipmentsService {
       where: {
         id: { not: shipmentId },
         assetId: data.assetId,
-        status: { in: activeStatuses },
+        status: { in: ACTIVE_SHIPMENT_STATUSES },
         order: { timeslot: { startTime: { lt: endTime }, endTime: { gt: startTime } } },
       },
     });

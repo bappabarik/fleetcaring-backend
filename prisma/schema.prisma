@@ -372,6 +372,11 @@ enum ShiftStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
+  // Was SCHEDULED, its whole window passed without the pilot ever
+  // starting it — distinct from CANCELLED (an explicit ops decision) so
+  // no-show rates can actually be reported on. Set only by the shift
+  // expiry worker's day-rollover sweep, never chosen directly by a user.
+  NO_SHOW
 }
 
 model Shift {

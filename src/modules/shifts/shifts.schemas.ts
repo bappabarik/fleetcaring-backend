@@ -11,6 +11,10 @@ export const createShiftSchema = z
   .refine((data) => data.endTime > data.startTime, {
     message: "endTime must be after startTime",
     path: ["endTime"],
+  })
+  .refine((data) => data.endTime > new Date(), {
+    message: "Can't schedule a shift that's already over",
+    path: ["endTime"],
   });
 
 export const breakReasonSchema = z.enum([
@@ -30,7 +34,7 @@ export const startBreakSchema = z.object({
 export const listShiftsQuerySchema = z.object({
   pilotId: z.string().uuid().optional(),
   zoneId: z.string().uuid().optional(),
-  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]).optional(),
+  status: z.enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "NO_SHOW"]).optional(),
   dateFrom: z.coerce.date().optional(), // filters on startTime
   dateTo: z.coerce.date().optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),

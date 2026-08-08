@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 
 export const TIMESLOT_MATERIALIZER_QUEUE = "timeslot-materializer";
 export const BREAK_EXPIRY_QUEUE = "break-expiry";
+export const SHIFT_EXPIRY_QUEUE = "shift-expiry";
 export const PAYMENT_WEBHOOK_QUEUE = "payment-webhook-processor";
 export const PUSH_NOTIFICATION_QUEUE = "push-dispatcher";
 
@@ -35,6 +36,13 @@ export function createTimeslotMaterializerQueue(): Queue {
 
 export function createBreakExpiryQueue(): Queue {
   return new Queue(BREAK_EXPIRY_QUEUE, {
+    connection: parseRedisConnectionOptions(env.REDIS_URL),
+  });
+}
+
+
+export function createShiftExpiryQueue(): Queue {
+  return new Queue(SHIFT_EXPIRY_QUEUE, {
     connection: parseRedisConnectionOptions(env.REDIS_URL),
   });
 }

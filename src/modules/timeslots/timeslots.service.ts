@@ -99,6 +99,11 @@ export class TimeslotsService {
         opItemId,
         zoneId,
         date: { gte: dayStart, lt: dayEnd },
+        // Cutoff is the slot's own start time — once it's begun, it's no
+        // longer bookable, even if it's still "today". This is the
+        // customer-facing filter; bookSlotInTransaction enforces the same
+        // cutoff again atomically, so this alone isn't the only guard.
+        startTime: { gt: new Date() },
       },
       orderBy: { startTime: "asc" },
     });
@@ -121,15 +126,20 @@ export class TimeslotsService {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async bookSlotInTransaction(tx: Prisma.TransactionClient, timeslotId: string, actorId?: string): Promise<void> {
+    // The startTime cutoff lives in this same atomic UPDATE (not a
+    // separate "check then act" step) so there's no race between reading
+    // the slot's time and booking it — same reasoning as the capacity
+    // check it's already sitting next to.
     const updatedCount = await tx.$executeRaw`
       UPDATE "Timeslot"
       SET "bookedCount" = "bookedCount" + 1
-      WHERE id = ${timeslotId} AND "bookedCount" < (capacity - buffer)
+      WHERE id = ${timeslotId} AND "bookedCount" < (capacity - buffer) AND "startTime" > NOW()
     `;
 
     if (updatedCount === 0) {
       const slot = await tx.timeslot.findUnique({ where: { id: timeslotId } });
       if (!slot) throw new NotFoundError("Time slot not found");
+      if (slot.startTime <= new Date()) throw new ConflictError("This time slot has already passed");
       throw new ConflictError("This time slot is fully booked");
     }
 
